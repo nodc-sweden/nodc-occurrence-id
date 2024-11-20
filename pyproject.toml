@@ -1,0 +1,22 @@
+[project]
+name = "nodc-occurrence_id"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Magnus Wenzer", email = "magnus.wenzer@smhi.se"},
+]
+dependencies = [
+    "pandas>=2.2.1",
+    "sqlalchemy>=2.0.35",
+]
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
