@@ -109,7 +109,7 @@ class OccurrencesDatabase:
     data_type: str = ''
     cls: Type[DataTypeDatabaseTable] = None
     matching_cls: Type[DataTypeMatching] = None
-    _name = 'unique_id_occurrence'  # This is the name of the temporary column
+    _name = 'unique_id_occurrence'  # This is the name of the id column
 
     def __init__(self, db_directory: pathlib.Path | str | None = None) -> None:
 
@@ -148,9 +148,9 @@ class OccurrencesDatabase:
         self._add_temp_id_column(df=df)
         return df.drop_duplicates(self.temp_id_column)
 
-    def _get_obj_from_series(self, series: pd.Series) -> DataTypeDatabaseTable | None:
+    def _get_obj_from_series(self, series: pd.Series, include_uuid: bool = False) -> DataTypeDatabaseTable | None:
         """Returns the Database table object if all mandatory columns are present"""
-        ddict = self.filter_dict(series.to_dict())
+        ddict = self.filter_dict(series.to_dict(), include_uuid=include_uuid)
         missing_cols = [col for col in self.mandatory_columns if not ddict[col].strip()]
         if missing_cols:
             event.post_event('missing_mandatory_columns',
@@ -160,8 +160,6 @@ class OccurrencesDatabase:
                              ),
                             )
             return
-        # if not all([ddict[col].strip() for col in self.mandatory_columns]):
-        #     return
         obj = self._cls(**ddict)
         return obj
 
@@ -189,6 +187,8 @@ class OccurrencesDatabase:
 
     def _add_objs(self, objs: list[DataTypeDatabaseTable]) -> None:
         """Adds all given objects to the database"""
+        if not objs:
+            return
         with self.Session() as session:
             for obj in objs:
                 obj.add_all_cols_field()
@@ -214,8 +214,31 @@ class OccurrencesDatabase:
             boolean = df[self.temp_id_column] == series[self.temp_id_column]
             df.loc[boolean, self.id_column] = _id
 
+    def add_uuid_to_database_from_dataframe(self, df: pd.DataFrame):
+        """Adds uuid to database from dataframe if prefect match"""
+        objs_to_add_to_db = []
+        red_df = self._get_df_with_no_duplicates(df)
+        for i, series in red_df.iterrows():
+            obj = self._get_obj_from_series(series, include_uuid=True)
+            if not obj:
+                continue
+            if not obj.uuid:
+                continue
+            _id = self._get_uuid_in_db_from_object(obj)
+            if _id:
+                continue
+            objs_to_add_to_db.append(obj)
+            event.post_event('uuid_added_to_db_from_data',
+                             dict(
+                                 id=obj.uuid,
+                             )
+                             )
+        self._add_objs(objs_to_add_to_db)
+
     def add_uuid_to_dataframe_and_database(self, df: pd.DataFrame, add_if_valid: bool = False) -> dict:
-        """Adds uuid to dataframe for all rows that have match in database"""
+        """Adds uuid to dataframe for all rows that have match in database.
+        If not match in database a new id is created and added to dataframe and database.
+        Option to also add if 'is_valid_match' if True (set flag add_if_valid=True)"""
         if self.id_column not in df.columns:
             df[self.id_column] = ''
         objs_to_add_to_db = []
@@ -268,8 +291,7 @@ class OccurrencesDatabase:
                         boolean = df[self.temp_id_column] == series[self.temp_id_column]
                         df.loc[boolean, self.id_column] = match_obj.match_uuid
 
-        if objs_to_add_to_db:
-            self._add_objs(objs_to_add_to_db)
+        self._add_objs(objs_to_add_to_db)
         return all_valid_matches
 
     def _add_temp_id_column(self, df: pd.DataFrame) -> None:
@@ -300,10 +322,16 @@ class OccurrencesDatabase:
             result = query.all()
             return result
 
-    def filter_dict(self, data: dict) -> dict:
+    def filter_dict(self, data: dict, include_uuid: bool = False) -> dict:
         new_data = {}
-        for col in self.columns:
-            value = data.get(col)
+        columns = self.columns
+        if include_uuid:
+            columns.append('uuid')
+        for col in columns:
+            from_col = col
+            if col == 'uuid':
+                from_col = self.id_column
+            value = data.get(from_col, '')
             new_data[col] = value
         return new_data
 

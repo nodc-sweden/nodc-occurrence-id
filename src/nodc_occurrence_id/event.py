@@ -2,6 +2,7 @@ _subscribers = dict(
     missing_mandatory_columns=dict(),
     perfect_match_in_database=dict(),
     no_match_in_database=dict(),
+    uuid_added_to_db_from_data=dict(),
 )
 
 
