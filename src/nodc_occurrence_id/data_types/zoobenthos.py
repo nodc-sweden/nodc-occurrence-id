@@ -1,6 +1,6 @@
 import sqlalchemy.orm as orm
 
-from nodc_occurrence_id.base import Base, DataTypeDatabaseTable, OccurrencesDatabase, DataTypeMatching
+from nodc_occurrence_id.data_types.base import Base, DataTypeDatabaseTable, OccurrencesDatabase, DataTypeMatching
 
 
 class ZoobenthosDatabaseTable(Base, DataTypeDatabaseTable):

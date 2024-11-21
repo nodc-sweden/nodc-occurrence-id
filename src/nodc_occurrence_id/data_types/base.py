@@ -7,11 +7,7 @@ import pandas as pd
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
 
-from nodc_occurrence_id import utils, event
-
-# from sharkadm.utils import get_export_directory
-# from sharkadm import adm_logger
-
+from nodc_occurrence_id import event
 
 Base = orm.declarative_base()
 
@@ -111,7 +107,8 @@ class OccurrencesDatabase:
     matching_cls: Type[DataTypeMatching] = None
     _name = 'unique_id_occurrence'  # This is the name of the id column
 
-    def __init__(self, db_directory: pathlib.Path | str | None = None) -> None:
+    # def __init__(self, db_directory: pathlib.Path | str | None = None) -> None:
+    def __init__(self, db_path: pathlib.Path | str) -> None:
 
         self._cls: Type[DataTypeDatabaseTable] = self.cls
         self._cls_obj: DataTypeDatabaseTable = self.cls()
@@ -119,12 +116,7 @@ class OccurrencesDatabase:
         self.columns = self._cls_obj.columns[:]
         self.mandatory_columns = self._cls_obj.mandatory_columns[:]
 
-        name = f'occurrence_id_{self.data_type}.sqlite'
-
-        if db_directory:
-            self.db_path = pathlib.Path(db_directory) / name
-        else:
-            self.db_path = utils.get_database_path(name)
+        self.db_path = db_path
 
         self._initiate_database()
         self._create_database()
@@ -205,8 +197,11 @@ class OccurrencesDatabase:
 
     def add_uuid_to_dataframe(self, df: pd.DataFrame):
         """Adds uuid to dataframe for all rows that have match in database"""
-        red_df = self._get_df_with_no_duplicates(df)
-        for i, series in red_df.iterrows():
+        # red_df = self._get_df_with_no_duplicates(df)
+        # for i, series in red_df.iterrows():
+        self._add_temp_id_column(df=df)
+        for temp_id, red_df in df.groupby(self.temp_id_column):
+            series = red_df.loc[list(red_df.index)[0]]
             obj = self._get_obj_from_series(series)
             _id = self._get_uuid_in_db_from_object(obj)
             if not _id:
@@ -217,8 +212,11 @@ class OccurrencesDatabase:
     def add_uuid_to_database_from_dataframe(self, df: pd.DataFrame):
         """Adds uuid to database from dataframe if prefect match"""
         objs_to_add_to_db = []
-        red_df = self._get_df_with_no_duplicates(df)
-        for i, series in red_df.iterrows():
+        # red_df = self._get_df_with_no_duplicates(df)
+        # for i, series in red_df.iterrows():
+        self._add_temp_id_column(df=df)
+        for temp_id, red_df in df.groupby(self.temp_id_column):
+            series = red_df.loc[list(red_df.index)[0]]
             obj = self._get_obj_from_series(series, include_uuid=True)
             if not obj:
                 continue
@@ -231,6 +229,7 @@ class OccurrencesDatabase:
             event.post_event('uuid_added_to_db_from_data',
                              dict(
                                  id=obj.uuid,
+                                 nr_places=len(df),
                              )
                              )
         self._add_objs(objs_to_add_to_db)
@@ -243,8 +242,9 @@ class OccurrencesDatabase:
             df[self.id_column] = ''
         objs_to_add_to_db = []
         all_valid_matches = {}
-        red_df = self._get_df_with_no_duplicates(df)
-        for i, series in red_df.iterrows():
+        self._add_temp_id_column(df=df)
+        for temp_id, red_df in df.groupby(self.temp_id_column):
+            series = red_df.loc[list(red_df.index)[0]]
             obj = self._get_obj_from_series(series)
             if not obj:
                 continue
@@ -257,7 +257,9 @@ class OccurrencesDatabase:
                 event.post_event('perfect_match_in_database',
                                  dict(
                                      id=_id,
-                                     temp_id=temp_id
+                                     temp_id=temp_id,
+                                     level='debug',
+                                     nr_places=len(df),
                                  )
                                  )
             else:
@@ -274,17 +276,13 @@ class OccurrencesDatabase:
                     event.post_event('no_match_in_database',
                                      dict(
                                          id=_id,
-                                         temp_id=temp_id
+                                         temp_id=temp_id,
+                                         nr_places=len(df),
                                      )
                                      )
                 else:
                     valid_matches = [match for match in match_list if match.is_valid_match()]
-                    # print()
-                    # print(i)
-                    # print(f'{len(valid_matches)=}')
-                    # print(f'{valid_matches=}')
                     all_valid_matches[str(obj)] = valid_matches
-                    # print(f'{valid_matches=}')
                     if len(valid_matches) == 1 and add_if_valid:
                         match_obj = valid_matches[0]
                         objs_to_add_to_db.append(obj)
@@ -335,6 +333,3 @@ class OccurrencesDatabase:
             new_data[col] = value
         return new_data
 
-
-if __name__ == '__main__':
-    pass
