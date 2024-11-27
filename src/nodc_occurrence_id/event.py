@@ -1,8 +1,19 @@
 _subscribers = dict(
     missing_mandatory_columns=dict(),
-    perfect_match_in_database=dict(),
-    no_match_in_database=dict(),
-    uuid_added_to_db_from_data=dict(),
+    # perfect_match_in_database=dict(),
+    # no_match_in_database=dict(),
+    no_id_column_in_data=dict(),
+    missing_id_in_data=dict(),
+    # new_id_added_to_data=dict(),
+
+    id_added_to_database_from_data=dict(),
+
+    id_added_to_data_from_database=dict(),
+    new_id_added_to_data_and_database=dict(),
+    several_valid_matches_in_database=dict(),
+    valid_match_in_database=dict(),
+
+    progress=dict(),
 )
 
 

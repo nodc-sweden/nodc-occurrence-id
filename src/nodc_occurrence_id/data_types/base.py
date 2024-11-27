@@ -2,6 +2,7 @@ import pathlib
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Type
+import numpy as np
 
 import pandas as pd
 import sqlalchemy as sa
@@ -52,8 +53,8 @@ class DataTypeDatabaseTable:
 
 class DataTypeMatching(ABC):
     def __init__(self, obj: DataTypeDatabaseTable, match_obj: DataTypeDatabaseTable) -> None:
-        self.obj = obj
-        self.match_obj = match_obj
+        self.obj: DataTypeDatabaseTable = obj
+        self.match_obj: DataTypeDatabaseTable = match_obj
 
     def __repr__(self):
         match_str = f'matching {self.match_uuid}' if self.is_valid_match() else 'no match'
@@ -133,14 +134,14 @@ class OccurrencesDatabase:
         return self._name
 
     @property
-    def temp_id_column(self) -> str:
+    def temp_id_str_column(self) -> str:
         return f'_{self._name}_str'
 
     def _get_df_with_no_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
-        self._add_temp_id_column(df=df)
-        return df.drop_duplicates(self.temp_id_column)
+        self._add_temp_id_str_column(df=df)
+        return df.drop_duplicates(self.temp_id_str_column)
 
-    def _get_obj_from_series(self, series: pd.Series, include_uuid: bool = False) -> DataTypeDatabaseTable | None:
+    def _get_table_obj_from_series(self, series: pd.Series, include_uuid: bool = False) -> DataTypeDatabaseTable | None:
         """Returns the Database table object if all mandatory columns are present"""
         ddict = self.filter_dict(series.to_dict(), include_uuid=include_uuid)
         missing_cols = [col for col in self.mandatory_columns if not ddict[col].strip()]
@@ -148,14 +149,14 @@ class OccurrencesDatabase:
             event.post_event('missing_mandatory_columns',
                              dict(
                                  missing_columns=missing_cols,
-                                 temp_id=series[self.temp_id_column]
+                                 temp_id=series[self.temp_id_str_column]
                              ),
                             )
             return
         obj = self._cls(**ddict)
         return obj
 
-    def _get_uuid_in_db_from_object(self, obj: DataTypeDatabaseTable) -> str | None:
+    def _get_uuid_in_db_from_table_object(self, obj: DataTypeDatabaseTable) -> str | None:
         """
         Search for match in database and returns the corresponding uuid.
         A match is found if all values of self.columns match.
@@ -195,38 +196,52 @@ class OccurrencesDatabase:
                 query = query.filter(getattr(self._cls, key) == str(value))
             return query.all()
 
+    @staticmethod
+    def _get_first_series_from_dataframe(df: pd.DataFrame) -> pd.Series:
+        return df.loc[list(df.index)[0]]
+
     def add_uuid_to_dataframe(self, df: pd.DataFrame):
         """Adds uuid to dataframe for all rows that have match in database"""
         # red_df = self._get_df_with_no_duplicates(df)
         # for i, series in red_df.iterrows():
-        self._add_temp_id_column(df=df)
-        for temp_id, red_df in df.groupby(self.temp_id_column):
-            series = red_df.loc[list(red_df.index)[0]]
-            obj = self._get_obj_from_series(series)
-            _id = self._get_uuid_in_db_from_object(obj)
+        self._add_temp_id_str_column(df=df)
+        for temp_id, red_df in df.groupby(self.temp_id_str_column):
+            series = self._get_first_series_from_dataframe(red_df)
+            obj = self._get_table_obj_from_series(series)
+            _id = self._get_uuid_in_db_from_table_object(obj)
             if not _id:
                 continue
-            boolean = df[self.temp_id_column] == series[self.temp_id_column]
-            df.loc[boolean, self.id_column] = _id
+            df.loc[red_df.index, self.id_column] = _id
 
-    def add_uuid_to_database_from_dataframe(self, df: pd.DataFrame):
+    def add_uuid_to_database_from_data(self, df: pd.DataFrame):
         """Adds uuid to database from dataframe if prefect match"""
+        if self.id_column not in df:
+            event.post_event('no_id_column_in_data',
+                             dict(msg=f'Could not add {self.id_column} to database from data')
+                             )
+            return
+
         objs_to_add_to_db = []
-        # red_df = self._get_df_with_no_duplicates(df)
-        # for i, series in red_df.iterrows():
-        self._add_temp_id_column(df=df)
-        for temp_id, red_df in df.groupby(self.temp_id_column):
-            series = red_df.loc[list(red_df.index)[0]]
-            obj = self._get_obj_from_series(series, include_uuid=True)
+        self._add_temp_id_str_column(df=df)
+        for _id, red_df in df.groupby(self.id_column):
+            if not _id:
+                event.post_event('missing_id_in_data',
+                                 dict(
+                                     nr_places=len(df)
+                                 )
+                                 )
+                continue
+            series = self._get_first_series_from_dataframe(red_df)
+            obj = self._get_table_obj_from_series(series, include_uuid=True)
             if not obj:
                 continue
             if not obj.uuid:
                 continue
-            _id = self._get_uuid_in_db_from_object(obj)
+            _id = self._get_uuid_in_db_from_table_object(obj)
             if _id:
                 continue
             objs_to_add_to_db.append(obj)
-            event.post_event('uuid_added_to_db_from_data',
+            event.post_event('id_added_to_database_from_data',
                              dict(
                                  id=obj.uuid,
                                  nr_places=len(df),
@@ -234,73 +249,130 @@ class OccurrencesDatabase:
                              )
         self._add_objs(objs_to_add_to_db)
 
-    def add_uuid_to_dataframe_and_database(self, df: pd.DataFrame, add_if_valid: bool = False) -> dict:
+    def add_uuid_to_data_and_database(self, df: pd.DataFrame, add_if_valid: bool = False) -> dict:
         """Adds uuid to dataframe for all rows that have match in database.
         If not match in database a new id is created and added to dataframe and database.
-        Option to also add if 'is_valid_match' if True (set flag add_if_valid=True)"""
+        Option to also add if 'self.is_valid_match' if True (set flag add_if_valid=True)"""
         if self.id_column not in df.columns:
             df[self.id_column] = ''
         objs_to_add_to_db = []
         all_valid_matches = {}
-        self._add_temp_id_column(df=df)
-        for temp_id, red_df in df.groupby(self.temp_id_column):
-            series = red_df.loc[list(red_df.index)[0]]
-            obj = self._get_obj_from_series(series)
+        self._add_temp_id_str_column(df=df)
+        tot_nr_occurrences = len(df.groupby(self.temp_id_str_column))
+        for i, (temp_id_str, red_df) in enumerate(df.groupby(self.temp_id_str_column)):
+            if i == 200:
+                break
+            event.post_event('progress',
+                             dict(
+                                 total=tot_nr_occurrences,
+                                 current=i
+                             )
+                             )
+            print(f'{i} ({tot_nr_occurrences})')
+            series = self._get_first_series_from_dataframe(red_df)
+            obj = self._get_table_obj_from_series(series)
             if not obj:
                 continue
-            _id = self._get_uuid_in_db_from_object(obj)
+            _id = self._get_uuid_in_db_from_table_object(obj)
             if _id:
                 """ Perfect match in database. Add database UUID to dataframe"""
-                temp_id = series[self.temp_id_column]
-                boolean = df[self.temp_id_column] == temp_id
-                df.loc[boolean, self.id_column] = _id
-                event.post_event('perfect_match_in_database',
+                df.loc[red_df.index, self.id_column] = _id
+                event.post_event('id_added_to_data_from_database',
                                  dict(
+                                     perfect_match_in_db=True,
                                      id=_id,
-                                     temp_id=temp_id,
-                                     level='debug',
-                                     nr_places=len(df),
+                                     temp_id_str=temp_id_str,
+                                     debug=True,
+                                     nr_places=len(red_df),
+                                     added_to_data=True,
                                  )
                                  )
             else:
-                match_list = self._get_suggestion_in_db(obj)
+                match_list = self._get_suggestion_in_db(obj, temp_id_str)
                 if not match_list:
-                    """No column match database"""
+                    """No perfect och match or good suggestions in database"""
                     _id = str(uuid.uuid4())
                     obj.uuid = _id
-                    # self._add_obj(obj)
                     objs_to_add_to_db.append(obj)
-                    temp_id = series[self.temp_id_column]
-                    boolean = df[self.temp_id_column] == temp_id
-                    df.loc[boolean, self.id_column] = _id
-                    event.post_event('no_match_in_database',
+                    df.loc[red_df.index, self.id_column] = _id
+                    event.post_event('new_id_added_to_data_and_database',
                                      dict(
+                                         no_match_in_db=True,
                                          id=_id,
-                                         temp_id=temp_id,
-                                         nr_places=len(df),
+                                         new_id=True,
+                                         temp_id_str=temp_id_str,
+                                         nr_places=len(red_df),
                                      )
                                      )
                 else:
                     valid_matches = [match for match in match_list if match.is_valid_match()]
+
                     all_valid_matches[str(obj)] = valid_matches
-                    if len(valid_matches) == 1 and add_if_valid:
+                    if len(valid_matches) == 1:
                         match_obj = valid_matches[0]
-                        objs_to_add_to_db.append(obj)
-                        boolean = df[self.temp_id_column] == series[self.temp_id_column]
-                        df.loc[boolean, self.id_column] = match_obj.match_uuid
+                        if add_if_valid:
+                            objs_to_add_to_db.append(obj)
+                            df.loc[red_df.index, self.id_column] = match_obj.match_uuid
+                            event.post_event('id_added_to_data_from_database',
+                                             dict(
+                                                 valid_match=match_obj,
+                                                 perfect_match_in_db=False,
+                                                 diff_columns=match_obj.diff_columns,
+                                                 valid_match_in_db=True,
+                                                 temp_id_str=temp_id_str,
+                                                 nr_places=len(red_df),
+                                                 added_to_data=True,
+                                             )
+                                             )
+                        else:
+                            event.post_event('valid_match_in_database',
+                                             dict(
+                                                 valid_match=match_obj,
+                                                 perfect_match_in_db=False,
+                                                 valid_match_in_db=True,
+                                                 temp_id_str=temp_id_str,
+                                                 nr_places=len(red_df),
+                                                 added_to_data=False,
+                                             )
+                                             )
+                    elif valid_matches:
+                        event.post_event('several_valid_matches_in_database',
+                                         dict(
+                                             valid_matches=valid_matches,
+                                             temp_id_str=temp_id_str,
+                                             nr_places=len(red_df),
+                                             warning=True,
+                                         )
+                                         )
 
         self._add_objs(objs_to_add_to_db)
         return all_valid_matches
 
-    def _add_temp_id_column(self, df: pd.DataFrame) -> None:
-        """Values in temp id column are concatenated from values of self.columns"""
-        if self.temp_id_column in df:
-            return
-        df[self.temp_id_column] = df[self.columns].apply(lambda row: '_'.join(row.values.astype(str)), axis=1)
+    def add_matching_to_data(self, df: pd.DataFrame, *matching_objects: DataTypeMatching):
+        """Adds id to data from given matching objects"""
+        for match_obj in matching_objects:
+            boolean = df[self.temp_id_str_column] == match_obj.obj.temp_id_str
+            df[boolean, self.id_column] = match_obj.match_uuid
+            event.post_event('id_added_to_data_from_database',
+                             dict(
+                                 perfect_match_in_db=False,
+                                 valid_match_in_db=match_obj.is_valid_match(),
+                                 temp_id_str=match_obj.obj.temp_id_str,
+                                 nr_places=len(np.where(boolean)[0]),
+                                 forced=True,
+                             )
+                             )
 
-    def _get_suggestion_in_db(self, obj: DataTypeDatabaseTable, return_all=False) -> list[DataTypeMatching]:
-        """Returns the best matches found in database along with how many percent och the values in self.columns match. """
+    def _add_temp_id_str_column(self, df: pd.DataFrame) -> None:
+        """Values in temp id column are concatenated from values of self.columns"""
+        if self.temp_id_str_column in df:
+            return
+        df[self.temp_id_str_column] = df[self.columns].apply(lambda row: '_'.join(row.values.astype(str)), axis=1)
+
+    def _get_suggestion_in_db(self, obj: DataTypeDatabaseTable, temp_id_str) -> list[DataTypeMatching]:
+        """Returns the best matches found in database."""
         result = self._get_db_match_for_columns(obj, obj.columns)
+        obj.temp_id_str = temp_id_str
         if result:
             return [self.matching_cls(obj, result[0])]
         all_matching = []
