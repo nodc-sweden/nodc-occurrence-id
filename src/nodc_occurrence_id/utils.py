@@ -12,7 +12,7 @@ CONFIG_FILE_NAMES = []
 DATABASE_DIRECTORY = None
 if os.getenv('NODC_CONFIG'):
     DATABASE_DIRECTORY = pathlib.Path(os.getenv('NODC_CONFIG')) / CONFIG_SUBDIRECTORY / 'DATABASES'
-TEMP_DATABASE_DIRECTORY = pathlib.Path.home() / 'temp_nodc_config' / CONFIG_SUBDIRECTORY / 'DATABASES'
+# TEMP_DATABASE_DIRECTORY = pathlib.Path.home() / 'temp_nodc_config' / CONFIG_SUBDIRECTORY / 'DATABASES'
 
 
 DATABASES_URL = r'https://raw.githubusercontent.com/nodc-sweden/nodc_config/refs/heads/main/' + f'{CONFIG_SUBDIRECTORY}/DATABASES/'

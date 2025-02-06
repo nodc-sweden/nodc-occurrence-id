@@ -13,18 +13,26 @@ from .ifcb import IfcbOccurrencesDatabase
 logger = logging.getLogger(__name__)
 
 
-def get_database_path(name: str) -> pathlib.Path:
+def get_database_path(name: str) -> pathlib.Path | None:
     # if name not in get_database_names():
     #     raise FileNotFoundError(f'No config file with name "{name}" exists')
-    if utils.DATABASE_DIRECTORY:
-        path = utils.DATABASE_DIRECTORY / name
-        if path.exists():
-            return path
-    temp_path = utils.TEMP_DATABASE_DIRECTORY / name
-    if temp_path.exists():
-        return temp_path
-    update_database_file(temp_path)
-    return temp_path
+    if not utils.DATABASE_DIRECTORY:
+        return
+    return utils.DATABASE_DIRECTORY / name
+
+
+# def get_database_path(name: str) -> pathlib.Path:
+#     # if name not in get_database_names():
+#     #     raise FileNotFoundError(f'No config file with name "{name}" exists')
+#     if utils.DATABASE_DIRECTORY:
+#         path = utils.DATABASE_DIRECTORY / name
+#         if path.exists():
+#             return path
+#     temp_path = utils.TEMP_DATABASE_DIRECTORY / name
+#     if temp_path.exists():
+#         return temp_path
+#     update_database_file(temp_path)
+#     return temp_path
 
 
 def update_database_file(path: pathlib.Path) -> None:
@@ -60,8 +68,11 @@ def get_occurrence_database_path_for_data_type(data_type: str) -> pathlib.Path |
 def get_occurrence_database_for_data_type(data_type: str) -> OccurrencesDatabase | None:
     cls = get_databases().get(data_type.lower())
     if not cls:
-        return None
-    return cls(get_occurrence_database_path_for_data_type(data_type))
+        return
+    path = get_occurrence_database_path_for_data_type(data_type)
+    if not path:
+        return
+    return cls(path)
 
 
 def get_database_name_for_data_type(data_type: str) -> str:

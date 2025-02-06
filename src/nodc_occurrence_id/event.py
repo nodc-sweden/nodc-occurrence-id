@@ -14,6 +14,7 @@ _subscribers = dict(
     valid_match_in_database=dict(),
 
     progress=dict(),
+    result=dict(),
 )
 
 
