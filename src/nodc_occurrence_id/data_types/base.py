@@ -360,15 +360,15 @@ class OccurrencesDatabase:
         If not match in database a new id is created and added to dataframe and database.
         Option to also add if 'self.is_valid_match' if True (set flag add_if_valid=True)"""
         import time
-        times = dict(
-            perfect_match=0,
-            suggestion=0,
-            not_match_list=0,
-            valid_matches=0,
-            series=0,
-            all=0,
-            set_to_df=0,
-        )
+        # times = dict(
+        #     perfect_match=0,
+        #     suggestion=0,
+        #     not_match_list=0,
+        #     valid_matches=0,
+        #     series=0,
+        #     all=0,
+        #     set_to_df=0,
+        # )
         if self.id_column not in df.columns:
             df[self.id_column] = ''
         objs_to_add_to_db = []
@@ -381,12 +381,13 @@ class OccurrencesDatabase:
             mask = mask & (df[col] != '')
         data = df[mask]
         tot_occurrences = len(data.groupby(self.temp_id_str_column))
-        tot_nr_occurrences = 0
+        one_percent = int(tot_occurrences/100)
+        # tot_nr_occurrences = 0
+        # tot_nr_single_valid_suggestions = 0
+        # # tot_nr_added_valid_suggestions = 0
+        # tot_nr_not_added_valid_suggestions = 0
+        # tot_nr_several_matches_not_added_valid_suggestions = 0
         tot_nr_perfect_matches = 0
-        tot_nr_single_valid_suggestions = 0
-        # tot_nr_added_valid_suggestions = 0
-        tot_nr_not_added_valid_suggestions = 0
-        tot_nr_several_matches_not_added_valid_suggestions = 0
         tot_nr_new = 0
 
         valid_not_added: list[DataTypeMatching] = []
@@ -398,12 +399,10 @@ class OccurrencesDatabase:
             obj = self._get_table_obj_from_series(series)
             obj.add_all_cols_field()
             # times['series'] += (time.time() - t0)
-            print(i, temp_id_str)
-            if i and not i % 10:
-                print()
-                print(f'{times=}')
+            # print(i, temp_id_str)
+            # if i and not i % one_percent:
+            if i and not i % 1000:
                 self._post_event_progress(i, tot_occurrences)
-                break
             # print(f'a {i} ({tot_nr_occurrences}): {obj=}')
             #continue
             if not obj:
@@ -411,19 +410,19 @@ class OccurrencesDatabase:
             # tot_nr_occurrences += 1
             t0 = time.time()
             _id = self._get_uuid_in_db_from_table_object(obj)
-            print(f'{_id=}')
-            times['perfect_match'] += (time.time() - t0)
+            # print(f'{_id=}')
+            # times['perfect_match'] += (time.time() - t0)
             if _id:
                 """ Perfect match in database. Add database UUID to dataframe"""
                 df.loc[red_df.index, self.id_column] = _id
                 tot_nr_perfect_matches += 1
                 #self._post_event_id_added_to_data_from_database(_id, temp_id_str, nr_places)
             else:
-                t0 = time.time()
+                # t0 = time.time()
                 # match_list = self._get_suggestion_in_db(obj, temp_id_str)
                 valid_match = self._get_suggestion_in_db(obj)
-                print(f'{valid_match=}')
-                times['suggestion'] += (time.time() - t0)
+                # print(f'{valid_match=}')
+                # times['suggestion'] += (time.time() - t0)
                 # if not match_list:
                 if not valid_match:
                     """No perfect match or good suggestions in database"""
@@ -431,9 +430,9 @@ class OccurrencesDatabase:
                     _id = str(uuid.uuid4())
                     obj.uuid = _id
                     objs_to_add_to_db.append(obj)
-                    t000 = time.time()
+                    # t000 = time.time()
                     df.loc[red_df.index, self.id_column] = _id
-                    times['set_to_df'] += (time.time() - t000)
+                    # times['set_to_df'] += (time.time() - t000)
                     # self._post_event_new_id_added_to_data_and_database(_id, temp_id_str, nr_places) # Tar lååång tid
                     # times['not_match_list'] += (time.time() - t0)
                     tot_nr_new += 1
@@ -478,13 +477,13 @@ class OccurrencesDatabase:
         self._add_objs(objs_to_add_to_db)
         self._update_from_match_obj(valid_matches_to_update_in_database)
         # print(f'{objs_to_add_to_db=}')
-        print(f'{tot_nr_occurrences=}')
-        print(f'{tot_nr_perfect_matches=}')
-        print(f'{tot_nr_single_valid_suggestions=}')
-        print(f'{valid_not_added=}')
-        print(f'{tot_nr_not_added_valid_suggestions=}')
-        print(f'{tot_nr_several_matches_not_added_valid_suggestions=}')
-        print(f'{tot_nr_new=}')
+        # print(f'{tot_nr_occurrences=}')
+        # print(f'{tot_nr_perfect_matches=}')
+        # print(f'{tot_nr_single_valid_suggestions=}')
+        # print(f'{valid_not_added=}')
+        # print(f'{tot_nr_not_added_valid_suggestions=}')
+        # print(f'{tot_nr_several_matches_not_added_valid_suggestions=}')
+        # print(f'{tot_nr_new=}')
 
         event.post_event('result',
                          dict(
