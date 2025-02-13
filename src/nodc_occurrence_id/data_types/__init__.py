@@ -35,28 +35,28 @@ def get_database_path(name: str) -> pathlib.Path | None:
 #     return temp_path
 
 
-def update_database_file(path: pathlib.Path) -> None:
-    path.parent.mkdir(exist_ok=True, parents=True)
-    url = utils.DATABASES_URL + path.name
-    try:
-        res = requests.get(url, verify=ssl.CERT_NONE)
-        if res.status_code == 404:
-            return
-        with open(path, 'wb') as fid:
-            for chunk in res.iter_content(chunk_size=128):
-                fid.write(chunk)
-            logger.info(f'Database file "{path.name}" updated from {url}')
-    except requests.exceptions.ConnectionError:
-        logger.warning(f'Connection error. Could not update database file {path.name}')
-        raise
+# def update_database_file(path: pathlib.Path) -> None:
+#     path.parent.mkdir(exist_ok=True, parents=True)
+#     url = utils.DATABASES_URL + path.name
+#     try:
+#         res = requests.get(url, verify=ssl.CERT_NONE)
+#         if res.status_code == 404:
+#             return
+#         with open(path, 'wb') as fid:
+#             for chunk in res.iter_content(chunk_size=128):
+#                 fid.write(chunk)
+#             logger.info(f'Database file "{path.name}" updated from {url}')
+#     except requests.exceptions.ConnectionError:
+#         logger.warning(f'Connection error. Could not update database file {path.name}')
+#         raise
 
 
-def update_database_files() -> None:
-    """Downloads database files from github"""
-    for dtype in get_databases():
-        name = get_database_name_for_data_type(dtype)
-        target_path = utils.TEMP_DATABASE_DIRECTORY / name
-        update_database_file(target_path)
+# def update_database_files() -> None:
+#     """Downloads database files from github"""
+#     for dtype in get_databases():
+#         name = get_database_name_for_data_type(dtype)
+#         target_path = utils.TEMP_DATABASE_DIRECTORY / name
+#         update_database_file(target_path)
 
 
 def get_occurrence_database_path_for_data_type(data_type: str) -> pathlib.Path | None:
