@@ -115,7 +115,7 @@ class OccurrencesDatabase:
     data_type: str = ''
     cls: Type[DataTypeDatabaseTable] = None
     matching_cls: Type[DataTypeMatching] = None
-    _name = 'unique_id_occurrence'  # This is the name of the id column
+    _name = 'occurrence_id'  # This is the name of the id column
 
     # def __init__(self, db_directory: pathlib.Path | str | None = None) -> None:
     def __init__(self, db_path: pathlib.Path | str) -> None:
