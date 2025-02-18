@@ -3,8 +3,8 @@ import sqlalchemy.orm as orm
 from nodc_occurrence_id.data_types.base import Base, DataTypeDatabaseTable, OccurrencesDatabase, DataTypeMatching
 
 
-class IfcbDatabaseTable(Base, DataTypeDatabaseTable):
-    __tablename__ = 'ifcb'
+class PlanktonImagingDatabaseTable(Base, DataTypeDatabaseTable):
+    __tablename__ = 'plankton_imaging'
 
     # reported_station_name: orm.Mapped[str]
     reported_station_name: orm.Mapped[str] = orm.mapped_column(index=True)
@@ -22,7 +22,7 @@ class IfcbDatabaseTable(Base, DataTypeDatabaseTable):
         ]
 
 
-class IfcbDataTypeMatching(DataTypeMatching):
+class PlanktonImagingDataTypeMatching(DataTypeMatching):
 
     def is_valid_match(self) -> bool:
         if self.diff_columns.get('reported_scientific_name'):
@@ -30,10 +30,10 @@ class IfcbDataTypeMatching(DataTypeMatching):
         return True
 
 
-class IfcbOccurrencesDatabase(OccurrencesDatabase):
-    data_type = 'ifcb'
-    cls = IfcbDatabaseTable
-    matching_cls = IfcbDataTypeMatching
+class PlanktonImagingOccurrencesDatabase(OccurrencesDatabase):
+    data_type = 'plankton_imaging'
+    cls = PlanktonImagingDatabaseTable
+    matching_cls = PlanktonImagingDataTypeMatching
 
 
 

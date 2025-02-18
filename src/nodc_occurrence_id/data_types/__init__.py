@@ -1,14 +1,11 @@
 import logging
 import pathlib
-import ssl
 from typing import Type
-
-import requests
 
 from nodc_occurrence_id import utils
 from .base import OccurrencesDatabase
+from .plankton_imaging import PlanktonImagingOccurrencesDatabase
 from .zoobenthos import ZoobenthosOccurrencesDatabase
-from .ifcb import IfcbOccurrencesDatabase
 
 logger = logging.getLogger(__name__)
 
