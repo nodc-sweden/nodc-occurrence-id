@@ -16,11 +16,12 @@ Base = orm.declarative_base()
 
 class DataTypeDatabaseTable:
     id: orm.Mapped[int] = orm.mapped_column(primary_key=True, autoincrement=True)
-    uuid: orm.Mapped[str] = orm.mapped_column(unique=True)
+    uuid: orm.Mapped[str] = orm.mapped_column(unique=True, nullable=False)
+    create_time: orm.Mapped[datetime.datetime] = orm.mapped_column(insert_default=sa.func.now(), nullable=False)
+    update_time: orm.Mapped[datetime.datetime] = orm.mapped_column(insert_default=sa.func.now(), nullable=False)
     all_cols: orm.Mapped[str] = orm.mapped_column(unique=True, index=True)
     # sample_date: orm.Mapped[str]
     # sample_time: orm.Mapped[str]
-    datetime_str: orm.Mapped[str]
     # sample_year: orm.Mapped[int]
     # sample_month: orm.Mapped[int]
     # sample_day: orm.Mapped[int]
@@ -36,7 +37,7 @@ class DataTypeDatabaseTable:
     @property
     def columns(self) -> list[str]:
         inst = sa.inspect(self)
-        return [c_attr.key for c_attr in inst.mapper.column_attrs if c_attr.key not in ['id', 'uuid', 'all_cols',
+        return [c_attr.key for c_attr in inst.mapper.column_attrs if c_attr.key not in ['id', 'uuid', 'all_cols', 'create_time', 'update_time',
                                                                                         # 'sample_year', 'sample_month', 'sample_day',
                                                                                         ]]
 
@@ -201,14 +202,16 @@ class OccurrencesDatabase:
 
     def _update_from_match_obj(self, valid_matches: list[DataTypeMatching]) -> None:
         """Adds all given objects to the database"""
+        update_time = datetime.datetime.utcnow()
         with self.Session() as session:
             updated = []
             for match in valid_matches:
                 obj = session.query(self._cls).filter(self._cls.uuid == match.match_obj.uuid).first()
                 for col, value in match.obj.data.items():
-                    if col in ['id', 'uuid']:
+                    if col in ['id', 'uuid', 'create_time']:
                         continue
                     setattr(obj, col, value)
+                obj.update_time = update_time
                 updated.append(obj)
             session.commit()
 
@@ -359,7 +362,7 @@ class OccurrencesDatabase:
         """Adds uuid to dataframe for all rows that have match in database.
         If not match in database a new id is created and added to dataframe and database.
         Option to also add if 'self.is_valid_match' if True (set flag add_if_valid=True)"""
-        import time
+        # import time
         # times = dict(
         #     perfect_match=0,
         #     suggestion=0,
@@ -393,10 +396,11 @@ class OccurrencesDatabase:
         valid_not_added: list[DataTypeMatching] = []
 
         for i, (temp_id_str, red_df) in enumerate(data.groupby(self.temp_id_str_column)):
-
             # t0 = time.time()
             series = self._get_first_series_from_dataframe(red_df)
             obj = self._get_table_obj_from_series(series)
+            if not obj:
+                continue
             obj.add_all_cols_field()
             # times['series'] += (time.time() - t0)
             # print(i, temp_id_str)
@@ -408,7 +412,7 @@ class OccurrencesDatabase:
             if not obj:
                 continue
             # tot_nr_occurrences += 1
-            t0 = time.time()
+            # t0 = time.time()
             _id = self._get_uuid_in_db_from_table_object(obj)
             # print(f'{_id=}')
             # times['perfect_match'] += (time.time() - t0)
@@ -485,38 +489,42 @@ class OccurrencesDatabase:
         # print(f'{tot_nr_several_matches_not_added_valid_suggestions=}')
         # print(f'{tot_nr_new=}')
 
-        event.post_event('result',
-                         dict(
-                             name='nr_perfect_match',
-                             value=tot_nr_perfect_matches,
-                             msg=f'Adding {tot_nr_perfect_matches} occurence_id(s) from perfect match in database'
-                         )
-                         )
+        if tot_nr_perfect_matches:
+            event.post_event('result',
+                             dict(
+                                 name='nr_perfect_match',
+                                 value=tot_nr_perfect_matches,
+                                 msg=f'Adding {tot_nr_perfect_matches} occurence_id(s) from perfect match in database'
+                             )
+                             )
 
-        event.post_event('result',
-                         dict(
-                             name='valid_added',
-                             value=valid_matches_to_update_in_database,
-                             msg=f'Adding {len(valid_matches_to_update_in_database)} occurence_id(s) from VALID match in database. Database is updates!'
-                         )
-                         )
+        if valid_matches_to_update_in_database:
+            event.post_event('result',
+                             dict(
+                                 name='valid_added',
+                                 value=valid_matches_to_update_in_database,
+                                 msg=f'Adding {len(valid_matches_to_update_in_database)} occurence_id(s) from VALID match in database. Database is updates!'
+                             )
+                             )
 
-        event.post_event('result',
-                         dict(
-                             name='valid_not_added',
-                             value=valid_not_added,
-                             msg=f'Found {len(valid_not_added)} VALID occurence_id match(es)in database but did not add! '
-                                 f'Set add_if_valid=True if you want to add them'
-                         )
-                         )
+        if valid_not_added:
+            event.post_event('result',
+                             dict(
+                                 name='valid_not_added',
+                                 value=valid_not_added,
+                                 msg=f'Found {len(valid_not_added)} VALID occurence_id match(es)in database but did not add! '
+                                     f'Set add_if_valid=True if you want to add them'
+                             )
+                             )
 
-        event.post_event('result',
-                         dict(
-                             name='nr_new_ids',
-                             value=tot_nr_new,
-                             msg=f'{tot_nr_new} new occurens_id(s) added to data and database'
-                         )
-                         )
+        if tot_nr_new:
+            event.post_event('result',
+                             dict(
+                                 name='nr_new_ids',
+                                 value=tot_nr_new,
+                                 msg=f'{tot_nr_new} new occurens_id(s) added to data and database'
+                             )
+                             )
 
         # self._post_event_result('nr_perfect_match', tot_nr_perfect_matches)
         # self._post_event_result('nr_added_valid_suggestions', tot_nr_added_valid_suggestions)

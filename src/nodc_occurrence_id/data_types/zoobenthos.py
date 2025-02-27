@@ -8,6 +8,7 @@ class ZoobenthosDatabaseTable(Base, DataTypeDatabaseTable):
 
     reported_station_name: orm.Mapped[str]
     reported_scientific_name: orm.Mapped[str]
+    datetime_str: orm.Mapped[str]
     species_flag_code: orm.Mapped[str]
     dev_stage_code: orm.Mapped[str]
 

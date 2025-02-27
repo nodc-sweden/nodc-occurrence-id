@@ -9,6 +9,7 @@ class PlanktonImagingDatabaseTable(Base, DataTypeDatabaseTable):
     # reported_station_name: orm.Mapped[str]
     reported_station_name: orm.Mapped[str] = orm.mapped_column(index=True)
     reported_scientific_name: orm.Mapped[str]
+    datetime_str: orm.Mapped[str]
     species_flag_code: orm.Mapped[str]
 
     @property
