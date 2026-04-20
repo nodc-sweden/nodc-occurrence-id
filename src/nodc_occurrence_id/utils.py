@@ -2,17 +2,32 @@ import logging
 import os
 import pathlib
 
-logger = logging.getLogger(__name__)
-
 CONFIG_ENV = 'NODC_CONFIG'
 
 CONFIG_SUBDIRECTORY = 'nodc_occurrence_id'
 CONFIG_FILE_NAMES = []
 
+home = pathlib.Path.home()
+OTHER_CONFIG_SOURCES = [
+    home / 'NODC_CONFIG',
+    home / '.NODC_CONFIG',
+    home / 'nodc_config',
+    home / '.nodc_config',
+]
 
-DATABASE_DIRECTORY = None
-if os.getenv(CONFIG_ENV) and pathlib.Path(os.getenv(CONFIG_ENV)).exists():
-    DATABASE_DIRECTORY = pathlib.Path(os.getenv(CONFIG_ENV)) / CONFIG_SUBDIRECTORY
+
+def get_user_given_config_dir() -> pathlib.Path | None:
+    path = pathlib.Path(os.getcwd()) / "config_directory.txt"
+    if not path.exists():
+        return
+    with open(path) as fid:
+        config_path = fid.readline().strip()
+        if not config_path:
+            return
+        config_path = pathlib.Path(config_path)
+        if not config_path.exists():
+            return
+        return config_path
 
 
 def get_all_class_children_list(cls):
@@ -31,3 +46,14 @@ def get_all_class_children(cls):
         mapping[c.data_type.lower()] = c
     return mapping
 
+
+CONFIG_DIRECTORY = get_user_given_config_dir()
+if not CONFIG_DIRECTORY:
+    if os.getenv(CONFIG_ENV) and pathlib.Path(os.getenv(CONFIG_ENV)).exists():
+        CONFIG_DIRECTORY = pathlib.Path(os.getenv(CONFIG_ENV))
+    else:
+        for directory in OTHER_CONFIG_SOURCES:
+            if directory.exists():
+                CONFIG_DIRECTORY = directory
+                break
+DATABASE_DIRECTORY = CONFIG_DIRECTORY / CONFIG_SUBDIRECTORY
