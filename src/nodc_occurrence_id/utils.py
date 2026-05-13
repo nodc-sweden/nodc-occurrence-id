@@ -1,18 +1,17 @@
-import logging
 import os
 import pathlib
 
-CONFIG_ENV = 'NODC_CONFIG'
+CONFIG_ENV = "NODC_CONFIG"
 
-CONFIG_SUBDIRECTORY = 'nodc_occurrence_id'
+CONFIG_SUBDIRECTORY = "nodc_occurrence_id"
 CONFIG_FILE_NAMES = []
 
 home = pathlib.Path.home()
 OTHER_CONFIG_SOURCES = [
-    home / 'NODC_CONFIG',
-    home / '.NODC_CONFIG',
-    home / 'nodc_config',
-    home / '.nodc_config',
+    home / "NODC_CONFIG",
+    home / ".NODC_CONFIG",
+    home / "nodc_config",
+    home / ".nodc_config",
 ]
 
 
