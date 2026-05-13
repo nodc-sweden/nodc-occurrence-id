@@ -48,6 +48,7 @@ def get_all_class_children(cls):
 
 
 CONFIG_DIRECTORY = get_user_given_config_dir()
+print(f"{CONFIG_DIRECTORY=}")
 if not CONFIG_DIRECTORY:
     if os.getenv(CONFIG_ENV) and pathlib.Path(os.getenv(CONFIG_ENV)).exists():
         CONFIG_DIRECTORY = pathlib.Path(os.getenv(CONFIG_ENV))

@@ -10,12 +10,12 @@ from .zoobenthos import ZoobenthosOccurrencesDatabase
 logger = logging.getLogger(__name__)
 
 
-def get_database_path(name: str) -> pathlib.Path | None:
+def get_database_path(data_type: str) -> pathlib.Path | None:
     # if name not in get_database_names():
     #     raise FileNotFoundError(f'No config file with name "{name}" exists')
     if not utils.DATABASE_DIRECTORY:
         return
-    return utils.DATABASE_DIRECTORY / name
+    return utils.DATABASE_DIRECTORY / f"{data_type}.txt"
 
 
 # def get_database_path(name: str) -> pathlib.Path:
@@ -57,8 +57,7 @@ def get_database_path(name: str) -> pathlib.Path | None:
 
 
 def get_occurrence_database_path_for_data_type(data_type: str) -> pathlib.Path | None:
-    name = get_database_name_for_data_type(data_type)
-    db_path = get_database_path(name)
+    db_path = get_database_path(data_type)
     return db_path
 
 
@@ -70,11 +69,6 @@ def get_occurrence_database_for_data_type(data_type: str) -> OccurrencesDatabase
     if not path:
         return
     return cls(path)
-
-
-def get_database_name_for_data_type(data_type: str) -> str:
-    return f'occurrence_id.sqlite'
-    # return f'occurrence_id_{data_type.lower()}.sqlite'
 
 
 def get_databases() -> dict[str, Type[OccurrencesDatabase]]:
