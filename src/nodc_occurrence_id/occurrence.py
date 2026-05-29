@@ -5,7 +5,7 @@ from typing import Any, Type
 
 import polars as pl
 
-from nodc_occurrence_id import event
+from nodc_occurrence_id import event, utils
 from nodc_occurrence_id.data_types.base import DataTypeDatabaseTable, DataTypeMatching
 
 
@@ -267,9 +267,9 @@ class OccurrencesDatabase:
         If not match in database a new id is created and added to dataframe and database.
         Option to also add if 'self.is_valid_match' if True
         (set flag add_if_valid=True)"""
-        import time
-
-        t0 = time.time()
+        hashes_before = utils.get_database_hashes()
+        # import time
+        # t0 = time.time()
         if self.id_column not in df.columns:
             df = df.with_columns(pl.lit("").alias(self.id_column))
 
@@ -293,6 +293,8 @@ class OccurrencesDatabase:
                 ),
             )
             self.save()
+            hashes_after = utils.get_database_hashes()
+            self._check_hashes(hashes_before, hashes_after)
             return df
 
         data = self._handle_new_posts(data)
@@ -302,17 +304,12 @@ class OccurrencesDatabase:
             no_perfect_match_df, add_if_valid=add_if_valid
         )
 
-        # self.perfect_match_df = perfect_match_df
-        # self.no_perfect_match_df = no_perfect_match_df
-        # self.tot_nr_perfect_matches = tot_nr_perfect_matches
-        # self.suggestion_info = suggestion_info
-
         df = self._add_ids_to_df(df)
         self._update_db_from_match_obj(
             suggestion_info.get("valid_matches_to_update_in_database")
         )
         self._add_objs_to_db(suggestion_info.get("objs_to_add_to_db"))
-        print(f"{time.time()-t0=}")
+        # print(f"{time.time()-t0=}")
 
         if missing_mandatory:
             event.post_event(
@@ -371,7 +368,25 @@ class OccurrencesDatabase:
                 ),
             )
         self.save()
+        hashes_after = utils.get_database_hashes()
+        self._check_hashes(hashes_before, hashes_after)
         return df
+
+    def _check_hashes(self, before: dict, after: dict):
+        files = dict(
+            new_db=[],
+            updated_db=[],
+        )
+        updated = False
+        for name, h in after.items():
+            if before.get(name) is None:
+                files["new_db"].append(name)
+                updated = True
+            elif before.get(name) != h:
+                files["updated_db"].append(name)
+                updated = True
+        if updated:
+            event.post_event(event.Events.DATABASE_IS_UPDATED, files)
 
     def _post_event_progress(self, current: int, total: int) -> None:
         event.post_event(

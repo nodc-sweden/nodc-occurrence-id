@@ -22,29 +22,27 @@ class DataTypeDatabaseTable:
         if not self.uuid:
             self.uuid = str(uuid.uuid4())
 
-        self.__fields = [
-            f.name for f in dataclasses.fields(self) if f.name != "data_type"
-        ]
-        self.__columns = [
+        self._fields = [f.name for f in dataclasses.fields(self) if f.name != "data_type"]
+        self._columns = [
             col
-            for col in self.__fields
+            for col in self._fields
             if col not in ["uuid", "all_cols", "create_time", "update_time"]
         ]
-        self.__editable_columns = [
-            col for col in self.__fields if col not in ["create_time"]
+        self._editable_columns = [
+            col for col in self._fields if col not in ["create_time"]
         ]
 
     @property
     def fields(self) -> list[str]:
-        return self.__fields
+        return self._fields
 
     @property
     def columns(self) -> list[str]:
-        return self.__columns
+        return self._columns
 
     @property
     def editable_columns(self) -> list[str]:
-        return self.__editable_columns
+        return self._editable_columns
 
     @property
     def fields_data(self) -> dict:

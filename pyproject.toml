@@ -1,23 +1,43 @@
 [project]
 name = "nodc-occurrence_id"
 version = "0.1.0"
-description = "Default template for PDM package"
+description = "Handle occurrence_id for Swedish NODC"
 authors = [
     {name = "Magnus Wenzer", email = "magnus.wenzer@smhi.se"},
 ]
 dependencies = [
-    "pandas>=2.2.1",
-    "sqlalchemy>=2.0.35",
-    "requests>=2.32.3",
+    "polars==1.31.0",
 ]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}
 
+[project.scripts]
+sharkadm-cli = "sharkadm.sharkadm_cli:main"
+
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "ruff>=0.13.1",
+    "freezegun>=1.5.4",
+]
 
-[tool.pdm]
-distribution = true
+[tool.ruff]
+line-length = 90
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "A",  # flake8-builtins
+    "F",  # pyflakes
+    "E", # pycodestyle: error
+    "W",  # pycodestyle: warning
+    "I",  # isort: unsorted-imports
+    "RUF"  # Ruff-specific rules
+]
+
+per-file-ignores."__init__.py" = ["F401"]

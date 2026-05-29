@@ -1,3 +1,4 @@
+import hashlib
 import os
 import pathlib
 
@@ -46,8 +47,23 @@ def get_all_class_children(cls):
     return mapping
 
 
+def _get_hash_of_file(path: pathlib.Path) -> str:
+    with open(str(path), "rb") as f:
+        return hashlib.file_digest(f, hashlib.sha256).hexdigest()
+
+
+def get_database_hashes() -> dict[str, str]:
+    hashes = dict()
+    for path in DATABASE_DIRECTORY.iterdir():
+        if not path.suffix == ".txt":
+            continue
+        if not path.name.startswith("occurrence_id_"):
+            continue
+        hashes[path.name] = _get_hash_of_file(path)
+    return hashes
+
+
 CONFIG_DIRECTORY = get_user_given_config_dir()
-print(f"{CONFIG_DIRECTORY=}")
 if not CONFIG_DIRECTORY:
     if os.getenv(CONFIG_ENV) and pathlib.Path(os.getenv(CONFIG_ENV)).exists():
         CONFIG_DIRECTORY = pathlib.Path(os.getenv(CONFIG_ENV))

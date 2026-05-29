@@ -1,15 +1,23 @@
-_subscribers = dict(
-    missing_mandatory_columns=dict(),
-    no_id_column_in_data=dict(),
-    missing_id_in_data=dict(),
-    id_added_to_database_from_data=dict(),
-    id_added_to_data_from_database=dict(),
-    new_id_added_to_data_and_database=dict(),
-    several_valid_matches_in_database=dict(),
-    valid_match_in_database=dict(),
-    progress=dict(),
-    result=dict(),
-)
+from enum import StrEnum, auto
+
+
+class Events(StrEnum):
+    MISSING_MANDATORY_COLUMNS = auto()
+    NO_ID_COLUMN_IN_DATA = auto()
+    MISSING_ID_IN_DATA = auto()
+    ID_ADDED_TO_DATABASE_FROM_DATA = auto()
+    ID_ADDED_TO_DATA_FROM_DATABASE = auto()
+    NEW_ID_ADDED_TO_DATA_AND_DATABASE = auto()
+    SEVERAL_VALID_MATCHES_IN_DATABASE = auto()
+    VALID_MATCH_IN_DATABASE = auto()
+    PROGRESS = auto()
+    RESULT = auto()
+    DATABASE_IS_UPDATED = auto()
+
+
+_subscribers = dict()
+for e in Events:
+    _subscribers[str(e)] = dict()
 
 
 class EventNotFound(Exception):

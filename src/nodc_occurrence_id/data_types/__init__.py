@@ -2,10 +2,10 @@ import pathlib
 from typing import Type
 
 from nodc_occurrence_id import utils
-
-from ..occurrence import OccurrencesDatabase
+from .harbour_seal import HarbourSealOccurrencesDatabase
 from .plankton_imaging import PlanktonImagingOccurrencesDatabase
 from .zoobenthos import ZoobenthosOccurrencesDatabase
+from ..occurrence import OccurrencesDatabase
 
 
 def get_database_path(data_type: str) -> pathlib.Path | None:
