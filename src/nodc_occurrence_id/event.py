@@ -2,17 +2,13 @@ from enum import StrEnum, auto
 
 
 class Events(StrEnum):
-    MISSING_MANDATORY_COLUMNS = auto()
-    NO_ID_COLUMN_IN_DATA = auto()
-    MISSING_ID_IN_DATA = auto()
-    ID_ADDED_TO_DATABASE_FROM_DATA = auto()
-    ID_ADDED_TO_DATA_FROM_DATABASE = auto()
-    NEW_ID_ADDED_TO_DATA_AND_DATABASE = auto()
-    SEVERAL_VALID_MATCHES_IN_DATABASE = auto()
-    VALID_MATCH_IN_DATABASE = auto()
     PROGRESS = auto()
-    RESULT = auto()
+    MISSING_MANDATORY_COLUMNS = auto()
     DATABASE_IS_UPDATED = auto()
+    NR_PERFECT_MATCH = auto()
+    NR_VALID_ADDED = auto()
+    NR_VALID_NOT_ADDED = auto()
+    NR_NEW = auto()
 
 
 _subscribers = dict()

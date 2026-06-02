@@ -15,15 +15,32 @@ class HarbourSealDatabaseTable(DataTypeDatabaseTable):
 
     @property
     def mandatory_columns(self) -> list[str]:
-        return ["datetime_str", "reported_station_name", "station_name"]
+        return [
+            "datetime_str",
+            "reported_station_name",
+            "station_name",
+            "reported_position_str",
+            "reported_scientific_name",
+        ]
 
 
 class HarbourSealDataTypeMatching(DataTypeMatching):
     def is_valid_match(self) -> bool:
+        diff_columns = self.diff_columns
+        if len(diff_columns) == 2:
+            if diff_columns.get("reported_station_name") and diff_columns.get(
+                "station_name"
+            ):
+                if diff_columns.get("reported_station_name") == diff_columns.get(
+                    "station_name"
+                ):
+                    return True
+            return False
         return False
 
 
 class HarbourSealOccurrencesDatabase(OccurrencesDatabase):
     data_type = "harbourseal"
+    check_nr_diffs = 2
     cls = HarbourSealDatabaseTable
     matching_cls = HarbourSealDataTypeMatching

@@ -13,6 +13,7 @@ class OccurrencesDatabase:
     data_type: str = ""
     cls: Type[DataTypeDatabaseTable] = None
     matching_cls: Type[DataTypeMatching] = None
+    check_nr_diffs = 1
     _name = "occurrence_id"  # This is the name of the id column in data
 
     def __init__(self, db_path: pathlib.Path | str) -> None:
@@ -179,6 +180,121 @@ class OccurrencesDatabase:
     ) -> dict[str, Any]:
         if not no_perfect_match_df.height:
             return {}
+        self.no_perfect_match_df = no_perfect_match_df
+
+        objs_to_add_to_db: list[DataTypeMatching] = []
+        valid_matches_to_update_in_database: list[DataTypeMatching] = []
+        valid_not_added: list[DataTypeMatching] = []
+        self.cols = []
+
+        for i in range(len(self.columns)):
+            cols = self.columns[:]
+            cols.pop(i)
+            info = self._get_matches(no_perfect_match_df, cols)
+            objs_to_add_to_db.extend(info["new"])
+            if add_if_valid:
+                valid_matches_to_update_in_database.extend(info["valid"])
+            else:
+                valid_not_added.extend(info["valid"])
+        if self.check_nr_diffs == 2:
+            no_perfect_match_df = no_perfect_match_df.filter(
+                ~pl.col(self.temp_id_str_column).is_in(list(self.id_mapper))
+            )
+            if no_perfect_match_df.height:
+                double_cols = self.columns + self.columns
+                for n in range(len(self.columns)):
+                    cols = double_cols[n + 1 :][: len(self.columns) - 2]
+                    info = self._get_matches(no_perfect_match_df, cols)
+                    objs_to_add_to_db.extend(info["new"])
+                    if add_if_valid:
+                        valid_matches_to_update_in_database.extend(info["valid"])
+                    else:
+                        valid_not_added.extend(info["valid"])
+
+        return dict(
+            objs_to_add_to_db=objs_to_add_to_db,
+            tot_nr_new=len(objs_to_add_to_db),
+            valid_matches_to_update_in_database=valid_matches_to_update_in_database,
+            valid_not_added=valid_not_added,
+        )
+
+    def _get_matches(self, no_perfect_match_df: pl.DataFrame, cols: list[str]):
+        temp_concat_col = "_temp_concat_col"
+        db_df = self._db_df.with_columns(
+            pl.concat_str(cols, separator="<>").alias(temp_concat_col)
+        )
+        df = no_perfect_match_df.with_columns(
+            pl.concat_str(cols, separator="<>").alias(temp_concat_col)
+        )
+        match_df = df.join(db_df, on=temp_concat_col, how="inner")
+
+        col_data = dict(
+            cols=cols,
+            match_df=match_df,
+            obj=[],
+            match_obj=[],
+            mdf_data=[],
+            valid_match=[],
+        )
+        if not match_df.height:
+            self.cols.append(col_data)
+            return dict(
+                valid=[],
+                new=[],
+            )
+
+        valid = list()
+        new = list()
+
+        right_cols = [col for col in match_df.columns if col.endswith("_right")]
+        remove_cols_in_match = [col[:-6] for col in right_cols]
+        right_cols_mapper = dict(zip(right_cols, remove_cols_in_match))
+
+        for (temp_id_str,), mdf in match_df.group_by(temp_concat_col):
+            obj = self._get_table_obj(
+                df.filter(pl.col(temp_concat_col) == temp_id_str).to_dicts()[0]
+            )
+
+            mdf = mdf.drop(remove_cols_in_match)
+            mdf = mdf.rename(right_cols_mapper)
+
+            mdf_data = mdf.to_dicts()[0]
+
+            self.mdf_data = mdf_data
+
+            match_obj = self._get_table_obj(mdf_data, include_uuid=True)
+            self.obj = obj
+            self.match_obj = match_obj
+
+            obj.set_all_cols_field()
+            match_obj.set_all_cols_field()
+            valid_match = self.matching_cls(obj, match_obj)
+
+            col_data["obj"].append(obj)
+            col_data["match_obj"].append(match_obj)
+            col_data["mdf_data"].append(mdf_data)
+            col_data["valid_match"].append(valid_match)
+
+            if valid_match.is_valid_match():
+                valid.append(valid_match)
+            else:
+                _id = str(uuid.uuid4())
+                obj.uuid = _id
+                new.append(obj)
+                self.id_mapper[mdf_data[self.temp_id_str_column]] = _id
+        self.cols.append(col_data)
+
+        return dict(
+            valid=valid,
+            new=new,
+        )
+
+    def _old_map_suggestions_in_db(
+        self, no_perfect_match_df: pl.DataFrame, add_if_valid: bool = False
+    ) -> dict[str, Any]:
+        if not no_perfect_match_df.height:
+            return {}
+        self.no_perfect_match_df = no_perfect_match_df
         tot_nr_new = 0
 
         objs_to_add_to_db = []
@@ -197,6 +313,7 @@ class OccurrencesDatabase:
                 pl.concat_str(cols, separator="<>").alias(temp_concat_col)
             )
             match_df = df.join(db_df, on=temp_concat_col, how="inner")
+
             col_data = dict(
                 cols=cols,
                 match_df=match_df,
@@ -253,6 +370,7 @@ class OccurrencesDatabase:
                     self.id_mapper[mdf_data[self.temp_id_str_column]] = _id
                     tot_nr_new += 1
             self.cols.append(col_data)
+
         return dict(
             objs_to_add_to_db=objs_to_add_to_db,
             tot_nr_new=tot_nr_new,
@@ -268,8 +386,6 @@ class OccurrencesDatabase:
         Option to also add if 'self.is_valid_match' if True
         (set flag add_if_valid=True)"""
         hashes_before = utils.get_database_hashes()
-        # import time
-        # t0 = time.time()
         if self.id_column not in df.columns:
             df = df.with_columns(pl.lit("").alias(self.id_column))
 
@@ -285,9 +401,8 @@ class OccurrencesDatabase:
             df = self._add_ids_to_df(df)
             nr_new = len(self._db_df)
             event.post_event(
-                "result",
+                event.Events.NR_NEW,
                 dict(
-                    name="nr_new_ids",
                     value=nr_new,
                     msg=f"{nr_new} new occurens_id(s) added to data and database",
                 ),
@@ -309,13 +424,11 @@ class OccurrencesDatabase:
             suggestion_info.get("valid_matches_to_update_in_database")
         )
         self._add_objs_to_db(suggestion_info.get("objs_to_add_to_db"))
-        # print(f"{time.time()-t0=}")
 
         if missing_mandatory:
             event.post_event(
-                "result",
+                event.Events.MISSING_MANDATORY_COLUMNS,
                 dict(
-                    name="missing_mandatory",
                     value=missing_mandatory,
                     msg=f"Mandatory columns missing in {missing_mandatory} rows",
                 ),
@@ -323,9 +436,8 @@ class OccurrencesDatabase:
 
         if tot_nr_perfect_matches:
             event.post_event(
-                "result",
+                event.Events.NR_PERFECT_MATCH,
                 dict(
-                    name="nr_perfect_match",
                     value=tot_nr_perfect_matches,
                     msg=f"Adding {tot_nr_perfect_matches} "
                     f"occurence_id(s) from perfect match in database",
@@ -334,12 +446,11 @@ class OccurrencesDatabase:
 
         if suggestion_info.get("valid_matches_to_update_in_database"):
             event.post_event(
-                "result",
+                event.Events.NR_VALID_ADDED,
                 dict(
-                    name="valid_added",
                     value=suggestion_info.get("valid_matches_to_update_in_database"),
                     msg=f"Adding "
-                    f'{len(suggestion_info.get("valid_matches_to_update_in_database"))}")'
+                    f"{len(suggestion_info.get('valid_matches_to_update_in_database'))}"
                     f" occurence_id(s) from VALID match in database. "
                     f"Database is updated!",
                 ),
@@ -347,9 +458,8 @@ class OccurrencesDatabase:
 
         if suggestion_info.get("valid_not_added"):
             event.post_event(
-                "result",
+                event.Events.NR_VALID_NOT_ADDED,
                 dict(
-                    name="valid_not_added",
                     value=suggestion_info.get("valid_not_added"),
                     msg=f"Found {len(suggestion_info.get('valid_not_added'))} "
                     f"VALID occurence_id match(es)in database but did not add! "
@@ -359,9 +469,8 @@ class OccurrencesDatabase:
 
         if suggestion_info.get("tot_nr_new"):
             event.post_event(
-                "result",
+                event.Events.NR_NEW,
                 dict(
-                    name="nr_new_ids",
                     value=suggestion_info.get("tot_nr_new"),
                     msg=f"{suggestion_info.get('tot_nr_new')} "
                     f"new occurens_id(s) added to data and database",
@@ -390,10 +499,9 @@ class OccurrencesDatabase:
 
     def _post_event_progress(self, current: int, total: int) -> None:
         event.post_event(
-            "progress",
+            event.Events.PROGRESS,
             dict(
                 total=total,
-                # total=tot_nr_occurrences,
                 current=current,
                 title="Checking occurrence id",
             ),
