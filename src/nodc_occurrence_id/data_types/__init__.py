@@ -9,24 +9,37 @@ from .plankton_imaging import PlanktonImagingOccurrencesDatabase
 from .zoobenthos import ZoobenthosOccurrencesDatabase
 
 
-def get_database_path(data_type: str) -> pathlib.Path | None:
-    if not utils.DATABASE_DIRECTORY:
+def get_database_path(data_type: str,
+                      root_directory: pathlib.Path | None = None) -> (
+        pathlib.Path | None):
+    if not root_directory:
+        root_directory = utils.DATABASE_DIRECTORY
+    if not root_directory:
         return
-    return utils.DATABASE_DIRECTORY / f"occurrence_id_{data_type}.txt"
+    return root_directory / f"occurrence_id_{data_type}.txt"
 
 
-def get_occurrence_database_path_for_data_type(data_type: str) -> pathlib.Path | None:
-    db_path = get_database_path(data_type)
+def get_occurrence_database_path_for_data_type(data_type: str,
+                                               root_directory: pathlib.Path | None = None) -> pathlib.Path | None:
+    db_path = get_database_path(
+        data_type,
+        root_directory=root_directory
+    )
     return db_path
 
 
-def get_occurrence_database_for_data_type(data_type: str) -> OccurrencesDatabase | None:
+def get_occurrence_database_for_data_type(data_type: str,
+                                          root_directory: pathlib.Path | None = None) -> (
+        OccurrencesDatabase |
+                                                                 None):
     cls = get_databases().get(data_type.lower())
     if not cls:
         return
-    path = get_occurrence_database_path_for_data_type(data_type)
+    path = get_occurrence_database_path_for_data_type(data_type,
+                                                      root_directory=root_directory)
     if not path:
         return
+    path.parent.mkdir(parents=True, exist_ok=True)
     return cls(path)
 
 

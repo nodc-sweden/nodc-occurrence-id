@@ -6,7 +6,9 @@ authors = [
     {name = "Magnus Wenzer", email = "magnus.wenzer@smhi.se"},
 ]
 dependencies = [
+    "connectorx>=0.4.5",
     "polars==1.31.0",
+    "pyarrow>=24.0.0",
 ]
 requires-python = ">=3.11"
 readme = "README.md"

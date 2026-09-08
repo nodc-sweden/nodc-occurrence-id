@@ -24,10 +24,13 @@ def get_events() -> list[str]:
     return sorted(_subscribers)
 
 
-def subscribe(event: str, func, prio: int = 50) -> None:
+def subscribe(event: str | Events, func, prio: int = 50) -> None:
+    event = str(event)
     if event not in _subscribers:
         raise EventNotFound(event)
     _subscribers[event].setdefault(prio, [])
+    if str(func) in [str(f) for f in _subscribers[event][prio]]:
+        return
     _subscribers[event][prio].append(func)
 
 

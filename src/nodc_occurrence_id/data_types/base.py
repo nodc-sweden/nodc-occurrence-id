@@ -12,6 +12,8 @@ class DataTypeDatabaseTable:
     create_time: str | None = None
     update_time: str | None = None
     all_cols: str | None = None
+    # status: str = "active"
+    # valid_uuid: str = ""
 
     def __post_init__(self):
         now = str(datetime.datetime.now())
@@ -27,6 +29,7 @@ class DataTypeDatabaseTable:
             col
             for col in self._fields
             if col not in ["uuid", "all_cols", "create_time", "update_time"]
+            # if col not in ["uuid", "all_cols", "create_time", "update_time", "status"]
         ]
         self._editable_columns = [
             col for col in self._fields if col not in ["create_time"]
