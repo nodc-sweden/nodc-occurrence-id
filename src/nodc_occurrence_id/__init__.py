@@ -1,2 +1,1 @@
-
 from nodc_occurrence_id.data_types import get_occurrence_database_for_data_type

@@ -1,18 +1,18 @@
-import logging
+import hashlib
 import os
 import pathlib
 
-CONFIG_ENV = 'NODC_CONFIG'
+CONFIG_ENV = "NODC_CONFIG"
 
-CONFIG_SUBDIRECTORY = 'nodc_occurrence_id'
+CONFIG_SUBDIRECTORY = "nodc_occurrence_id"
 CONFIG_FILE_NAMES = []
 
 home = pathlib.Path.home()
 OTHER_CONFIG_SOURCES = [
-    home / 'NODC_CONFIG',
-    home / '.NODC_CONFIG',
-    home / 'nodc_config',
-    home / '.nodc_config',
+    home / "NODC_CONFIG",
+    home / ".NODC_CONFIG",
+    home / "nodc_config",
+    home / ".nodc_config",
 ]
 
 
@@ -45,6 +45,22 @@ def get_all_class_children(cls):
     for c in get_all_class_children_list(cls):
         mapping[c.data_type.lower()] = c
     return mapping
+
+
+def _get_hash_of_file(path: pathlib.Path) -> str:
+    with open(str(path), "rb") as f:
+        return hashlib.file_digest(f, hashlib.sha256).hexdigest()
+
+
+def get_database_hashes() -> dict[str, str]:
+    hashes = dict()
+    for path in DATABASE_DIRECTORY.iterdir():
+        if not path.suffix == ".txt":
+            continue
+        if not path.name.startswith("occurrence_id_"):
+            continue
+        hashes[path.name] = _get_hash_of_file(path)
+    return hashes
 
 
 CONFIG_DIRECTORY = get_user_given_config_dir()

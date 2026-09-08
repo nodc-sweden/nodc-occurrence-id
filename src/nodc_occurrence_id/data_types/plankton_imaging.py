@@ -1,40 +1,38 @@
-import sqlalchemy.orm as orm
+from dataclasses import dataclass, field
 
-from nodc_occurrence_id.data_types.base import Base, DataTypeDatabaseTable, OccurrencesDatabase, DataTypeMatching
+from nodc_occurrence_id.data_types.base import DataTypeDatabaseTable, DataTypeMatching
+from nodc_occurrence_id.occurrence import OccurrencesDatabase
 
 
-class PlanktonImagingDatabaseTable(Base, DataTypeDatabaseTable):
-    __tablename__ = 'plankton_imaging'
+@dataclass
+class PlanktonImagingDatabaseTable(DataTypeDatabaseTable):
+    data_type: str = field(default="plankton_imaging", init=False)
 
-    # reported_station_name: orm.Mapped[str]
-    reported_station_name: orm.Mapped[str] = orm.mapped_column(index=True)
-    reported_scientific_name: orm.Mapped[str]
-    datetime_str: orm.Mapped[str]
-    species_flag_code: orm.Mapped[str]
+    reported_station_name: str | None = None
+    reported_scientific_name: str | None = None
+    datetime_str: str | None = None
+    species_flag_code: str | None = None
 
     @property
     def mandatory_columns(self) -> list[str]:
+        return ["datetime_str", "reported_station_name", "reported_scientific_name"]
+
+    @property
+    def new_post_columns(self) -> list[str]:
         return [
-            'datetime_str',
-            # 'sample_date',
-            # 'sample_time',
-            'reported_station_name',
-            'reported_scientific_name'
+            "datetime_str",
+            "reported_station_name",
         ]
 
 
 class PlanktonImagingDataTypeMatching(DataTypeMatching):
-
     def is_valid_match(self) -> bool:
-        if self.diff_columns.get('reported_scientific_name'):
+        if self.diff_columns.get("reported_scientific_name"):
             return False
         return True
 
 
 class PlanktonImagingOccurrencesDatabase(OccurrencesDatabase):
-    data_type = 'plankton_imaging'
+    data_type = "plankton_imaging"
     cls = PlanktonImagingDatabaseTable
     matching_cls = PlanktonImagingDataTypeMatching
-
-
-
