@@ -7,7 +7,8 @@ authors = [
 ]
 dependencies = [
     "connectorx>=0.4.5",
-    "polars==1.31.0",
+    "nodc-config",
+    "polars>=1.31.0",
     "pyarrow>=24.0.0",
 ]
 requires-python = ">=3.11"
@@ -43,3 +44,6 @@ select = [
 ]
 
 per-file-ignores."__init__.py" = ["F401"]
+
+[tool.uv.sources]
+nodc-config = { git = "https://github.com/nodc-sweden/nodc-config.git", rev = "v0.1.0" }
