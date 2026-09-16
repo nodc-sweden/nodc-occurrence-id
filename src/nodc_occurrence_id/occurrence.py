@@ -4,6 +4,7 @@ import uuid
 from typing import Any, Type
 
 import polars as pl
+from nodc_config import Config
 
 from nodc_occurrence_id import event, utils
 from nodc_occurrence_id.data_types.base import DataTypeDatabaseTable, DataTypeMatching
@@ -16,8 +17,9 @@ class OccurrencesDatabase:
     check_nr_diffs = 1
     _name = "occurrence_id"  # This is the name of the id column in data
 
-    def __init__(self, db_path: pathlib.Path | str) -> None:
+    def __init__(self, nodc_conf: Config, db_path: pathlib.Path | str) -> None:
 
+        self._nodc_conf = nodc_conf
         self._cls: Type[DataTypeDatabaseTable] = self.cls
         self._cls_obj: DataTypeDatabaseTable = self.cls()
 
@@ -71,7 +73,7 @@ class OccurrencesDatabase:
                 dict(
                     value=missing_cols,
                     msg=f"Missing columns {missing_cols}",
-                    temp_id=series[self.temp_id_str_column]
+                    temp_id=series[self.temp_id_str_column],
                 ),
             )
             return
@@ -416,7 +418,7 @@ class OccurrencesDatabase:
         If not match in database a new id is created and added to dataframe and database.
         Option to also add if 'self.is_valid_match' if True
         (set flag add_if_valid=True)"""
-        hashes_before = utils.get_database_hashes()
+        hashes_before = utils.get_database_hashes(self._nodc_conf)
         if self.id_column not in df.columns:
             df = df.with_columns(pl.lit("").alias(self.id_column))
 
@@ -443,7 +445,7 @@ class OccurrencesDatabase:
             self._check_hashes(hashes_before, hashes_after)
             return df
 
-        data = self._handle_new_posts(data) # Not implemented
+        data = self._handle_new_posts(data)  # Not implemented
 
         # Add ids for perfect match
         (no_perfect_match_df, tot_nr_perfect_matches) = self._map_perfect_match(data)
@@ -453,8 +455,9 @@ class OccurrencesDatabase:
             no_perfect_match_df, add_if_valid=add_if_valid
         )
 
-        skip = (suggestion_info.get("valid_not_added", []) +
-                suggestion_info.get("valid_matches_to_update_in_database", []))
+        skip = suggestion_info.get("valid_not_added", []) + suggestion_info.get(
+            "valid_matches_to_update_in_database", []
+        )
         objs = self._add_no_match_as_new(df, skip)
         suggestion_info["objs_to_add_to_db"] = objs
 
@@ -464,21 +467,6 @@ class OccurrencesDatabase:
             suggestion_info.get("valid_matches_to_update_in_database")
         )
         self._add_objs_to_db(suggestion_info.get("objs_to_add_to_db"))
-
-        # Check for missing in dataframe
-        # print(f"{len(df.filter(pl.col(self.id_column) != ''))=}")
-        # print(f"{len(df.filter(pl.col(self.id_column) == ''))=}")
-        #
-        # print()
-        # print("="*100)
-        # print(f"{suggestion_info=}")
-        # print()
-        # for key, value in suggestion_info.items():
-        #     print(key, value)
-        #     print()
-        # print()
-        # print("-"*100)
-
 
         if missing_mandatory:
             event.post_event(
@@ -504,11 +492,13 @@ class OccurrencesDatabase:
                 event.Events.NR_VALID_ADDED,
                 dict(
                     value=suggestion_info.get("valid_matches_to_update_in_database"),
-                    msg=f"Adding "
-                    f"{len(suggestion_info.get('valid_matches_to_update_in_database', 
-                                               []))}"
-                    f" occurrence_id(s) from VALID match in database. "
-                    f"Database is updated!",
+                    msg=f"""Adding {
+                        len(
+                            suggestion_info.get("valid_matches_to_update_in_database", [])
+                        )
+                    }
+                     occurrence_id(s) from VALID match in database. Database is updated!
+                        """,
                 ),
             )
 
@@ -517,8 +507,7 @@ class OccurrencesDatabase:
                 event.Events.NR_VALID_NOT_ADDED,
                 dict(
                     value=suggestion_info.get("valid_not_added"),
-                    msg=f"Found {len(suggestion_info.get('valid_not_added', 
-                                                         []))} "
+                    msg=f"Found {len(suggestion_info.get('valid_not_added', []))} "
                     f"VALID occurrence_id match(es)in database but did not add! "
                     f"Set add_if_valid=True if you want to add and update them",
                 ),
@@ -530,12 +519,11 @@ class OccurrencesDatabase:
                 event.Events.NR_NEW,
                 dict(
                     value=nr_new,
-                    msg=f"{nr_new} "
-                    f"new occurrence_id(s) added to data and database",
+                    msg=f"{nr_new} new occurrence_id(s) added to data and database",
                 ),
             )
         self.save()
-        hashes_after = utils.get_database_hashes()
+        hashes_after = utils.get_database_hashes(self._nodc_conf)
         self._check_hashes(hashes_before, hashes_after)
         return df
 

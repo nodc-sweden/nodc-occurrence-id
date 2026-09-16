@@ -1,33 +1,7 @@
 import hashlib
-import os
 import pathlib
 
-CONFIG_ENV = "NODC_CONFIG"
-
-CONFIG_SUBDIRECTORY = "nodc_occurrence_id"
-CONFIG_FILE_NAMES = []
-
-home = pathlib.Path.home()
-OTHER_CONFIG_SOURCES = [
-    home / "NODC_CONFIG",
-    home / ".NODC_CONFIG",
-    home / "nodc_config",
-    home / ".nodc_config",
-]
-
-
-def get_user_given_config_dir() -> pathlib.Path | None:
-    path = pathlib.Path(os.getcwd()) / "config_directory.txt"
-    if not path.exists():
-        return
-    with open(path) as fid:
-        config_path = fid.readline().strip()
-        if not config_path:
-            return
-        config_path = pathlib.Path(config_path)
-        if not config_path.exists():
-            return
-        return config_path
+from nodc_config import Config
 
 
 def get_all_class_children_list(cls):
@@ -52,24 +26,12 @@ def _get_hash_of_file(path: pathlib.Path) -> str:
         return hashlib.file_digest(f, hashlib.sha256).hexdigest()
 
 
-def get_database_hashes() -> dict[str, str]:
+def get_database_hashes(nodc_conf: Config) -> dict[str, str]:
     hashes = dict()
-    for path in DATABASE_DIRECTORY.iterdir():
+    for path in nodc_conf.get_directory("nodc_occurrence_id").iterdir():
         if not path.suffix == ".txt":
             continue
         if not path.name.startswith("occurrence_id_"):
             continue
         hashes[path.name] = _get_hash_of_file(path)
     return hashes
-
-
-CONFIG_DIRECTORY = get_user_given_config_dir()
-if not CONFIG_DIRECTORY:
-    if os.getenv(CONFIG_ENV) and pathlib.Path(os.getenv(CONFIG_ENV)).exists():
-        CONFIG_DIRECTORY = pathlib.Path(os.getenv(CONFIG_ENV))
-    else:
-        for directory in OTHER_CONFIG_SOURCES:
-            if directory.exists():
-                CONFIG_DIRECTORY = directory
-                break
-DATABASE_DIRECTORY = CONFIG_DIRECTORY / CONFIG_SUBDIRECTORY
