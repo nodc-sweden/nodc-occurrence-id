@@ -17,9 +17,15 @@ class OccurrencesDatabase:
     check_nr_diffs = 1
     _name = "occurrence_id"  # This is the name of the id column in data
 
-    def __init__(self, nodc_conf: Config, db_path: pathlib.Path | str) -> None:
+    def __init__(
+        self,
+        nodc_conf: Config,
+        db_path: pathlib.Path | str,
+        sort_db: bool = True,
+    ) -> None:
 
         self._nodc_conf = nodc_conf
+        self._sort_db = sort_db
         self._cls: Type[DataTypeDatabaseTable] = self.cls
         self._cls_obj: DataTypeDatabaseTable = self.cls()
 
@@ -49,6 +55,8 @@ class OccurrencesDatabase:
             )
 
     def save(self) -> None:
+        if self._sort_db:
+            self._db_df = self._db_df.sort("datetime_str")
         self._db_df.write_csv(self.db_path, separator="\t")
 
     @property
