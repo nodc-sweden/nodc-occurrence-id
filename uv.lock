@@ -56,7 +56,7 @@ source = { git = "https://github.com/nodc-sweden/nodc-config.git?rev=v0.1.0#20b9
 
 [[package]]
 name = "nodc-occurrence-id"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "connectorx" },
