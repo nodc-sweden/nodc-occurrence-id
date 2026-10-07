@@ -27,7 +27,7 @@ def get_occurrence_database_path_for_data_type(
 
 
 def get_occurrence_database_for_data_type(
-    nodc_conf: Config, data_type: str
+    nodc_conf: Config, data_type: str, **kwargs
 ) -> OccurrencesDatabase:
     cls = get_databases().get(data_type.lower())
     if not cls:
@@ -36,7 +36,7 @@ def get_occurrence_database_for_data_type(
     if not path:
         raise FileNotFoundError("No ")
     path.parent.mkdir(parents=True, exist_ok=True)
-    return cls(nodc_conf, path)
+    return cls(nodc_conf, path, **kwargs)
 
 
 def get_databases() -> dict[str, Type[OccurrencesDatabase]]:

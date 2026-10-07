@@ -22,6 +22,7 @@ class OccurrencesDatabase:
         nodc_conf: Config,
         db_path: pathlib.Path | str,
         sort_db: bool = True,
+        **kwargs,
     ) -> None:
 
         self._nodc_conf = nodc_conf
