@@ -221,16 +221,19 @@ class OccurrencesDatabase:
             data, add_if_valid=add_if_valid, force_new_occurrences=force_new_occurrences
         )
 
-        save_path = self._save_valid_match_file(list(mapper.keys()))
-        event.post_event(
-            event.Events.INFO,
-            dict(msg=f"Valid matches stored in file: {save_path}", data=sorted(mapper)),
-        )
-        if add_if_valid:
-            self.id_mapper.update(mapper)
-            data = self._add_ids_to_df(data, mapper=mapper)
-        else:
-            data = data.filter(~pl.col(self.all_cols_column).is_in(mapper.keys()))
+        if mapper:
+            save_path = self._save_valid_match_file(list(mapper.keys()))
+            event.post_event(
+                event.Events.INFO,
+                dict(
+                    msg=f"Valid matches stored in file: {save_path}", data=sorted(mapper)
+                ),
+            )
+            if add_if_valid:
+                self.id_mapper.update(mapper)
+                data = self._add_ids_to_df(data, mapper=mapper)
+            else:
+                data = data.filter(~pl.col(self.all_cols_column).is_in(mapper.keys()))
 
         # Add new if no match
         mapper = self._add_no_match_as_new(
