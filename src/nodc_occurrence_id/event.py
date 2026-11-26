@@ -9,6 +9,8 @@ class Events(StrEnum):
     NR_VALID_ADDED = auto()
     NR_VALID_NOT_ADDED = auto()
     NR_NEW = auto()
+    INFO = auto()
+    NEW_IDS_FORCED = auto()
 
 
 _subscribers = dict()

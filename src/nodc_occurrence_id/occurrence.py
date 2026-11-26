@@ -1,21 +1,27 @@
 import datetime
 import pathlib
 import uuid
-from typing import Any, Type
+from dataclasses import dataclass
 
 import polars as pl
 from nodc_config import Config
 
 from nodc_occurrence_id import event, utils
-from nodc_occurrence_id.data_types.base import DataTypeDatabaseTable, DataTypeMatching
+
+
+@dataclass
+class DatabaseMatching:
+    count: int
+    msg: str
+    id_mapper: dict[str, str]
 
 
 class OccurrencesDatabase:
     data_type: str = ""
-    cls: Type[DataTypeDatabaseTable] = None
-    matching_cls: Type[DataTypeMatching] = None
-    check_nr_diffs = 1
-    _name = "occurrence_id"  # This is the name of the id column in data
+    columns: tuple[str, ...] = None
+    mandatory_columns: tuple[str, ...] = None
+    _db_match_suffix = "_db"
+    _df_match_suffix = "_df"
 
     def __init__(
         self,
@@ -27,417 +33,159 @@ class OccurrencesDatabase:
 
         self._nodc_conf = nodc_conf
         self._sort_db = sort_db
-        self._cls: Type[DataTypeDatabaseTable] = self.cls
-        self._cls_obj: DataTypeDatabaseTable = self.cls()
-
-        self.columns = self._cls_obj.columns[:]
-        self.mandatory_columns = self._cls_obj.mandatory_columns[:]
 
         self._db_path = pathlib.Path(db_path)
 
         self.id_mapper: dict[str, str] = {}
+        self.db_mappers: dict[str, dict[str, str]] = {}
 
-        self._db_df: pl.DataFrame | None = None
+        self._db_df: pl.DataFrame = pl.DataFrame()
 
         self._load_db()
+        self._add_missing_columns_in_database()
+        self._update_all_cols_column_in_database()
+
+    @property
+    def db(self) -> pl.DataFrame:
+        return self._db_df
 
     @property
     def db_path(self) -> pathlib.Path:
         return self._db_path
 
+    @property
+    def id_column(self) -> str:
+        return "occurrence_id"
+
+    @property
+    def all_cols_column(self) -> str:
+        return "all_cols"
+
+    @property
+    def all_columns(self) -> list[str]:
+        return [*self.columns, "occurrence_id", "create_time", "update_time", "all_cols"]
+
+    @property
+    def match_columns(self) -> list[str]:
+        return self.columns
+
+    @property
+    def db_match_columns(self) -> list[str]:
+        return [f"{col}{self._db_match_suffix}" for col in self.match_columns]
+
+    @property
+    def sort_column(self) -> str:
+        return "datetime_str"
+
+    def _get_db_match_column(self, col: str) -> str:
+        return f"{col}{self._db_match_suffix}"
+
+    def _get_df_match_column(self, col: str) -> str:
+        return f"{col}{self._df_match_suffix}"
+
     def _load_db(self) -> None:
-        if self.db_path.exists():
-            self._db_df = pl.read_csv(
-                self.db_path,
-                encoding="utf8",
-                separator="\t",
-                infer_schema=False,
-                missing_utf8_is_empty_string=True,
-            )
+        if not self.db_path.exists():
+            return
+        self._db_df = pl.read_csv(
+            self.db_path,
+            encoding="utf8",
+            separator="\t",
+            infer_schema=False,
+            missing_utf8_is_empty_string=True,
+        )
+        self._db_df = self._db_df.fill_null("").fill_nan("")
+
+    def _add_missing_columns_in_database(self) -> None:
+        """
+        Adds columns that are not in database.
+        This is so that we can extend the number of columns we use for checking unique
+        occurrences.
+        """
+        self._db_df = self._db_df.with_columns(
+            [
+                pl.lit("").alias(col)
+                for col in self.columns
+                if col not in self._db_df.columns
+            ]
+        )
+
+    def _update_all_cols_column_in_database(self):
+        """
+        We ude this because we need to be able to change perfect
+        match-columns (property self.match_columns in child classes since the matching
+        critera may change over time
+        """
+        self._db_df = self._add_all_cols_column(self._db_df)
 
     def save(self) -> None:
         if self._sort_db:
-            self._db_df = self._db_df.sort("datetime_str")
+            self._db_df = self._db_df.sort(self.sort_column)
         self._db_df.write_csv(self.db_path, separator="\t")
 
-    @property
-    def id_column(self) -> str:
-        return self._name
+    def _prepare_data(self, df: pl.DataFrame) -> pl.DataFrame:
+        # Use this method in child classes if you need to prepare data before checking
+        # dataframe. This should not filter data but keep all data and add extra
+        # columns to bi able to match described columns.
+        return df
 
-    @property
-    def temp_id_str_column(self) -> str:
-        return f"_{self._name}_str"
+    def _filter_data(self, df: pl.DataFrame) -> pl.DataFrame:
+        # Use this method in child classes if you need to filter tha data that should
+        # be used for checking matches.
+        return df
 
-    def _get_table_obj(
-        self, series: dict, include_uuid: bool = False, include_all_cols: bool = False
-    ) -> DataTypeDatabaseTable | None:
-        """Returns the Database table object if all mandatory columns are present"""
-        ddict = self.filter_dict(
-            series, include_uuid=include_uuid, include_all_cols=include_all_cols
-        )
-        missing_cols = [col for col in self.mandatory_columns if not ddict[col].strip()]
-        if missing_cols:
-            event.post_event(
-                event.Events.MISSING_MANDATORY_COLUMNS,
-                dict(
-                    value=missing_cols,
-                    msg=f"Missing columns {missing_cols}",
-                    temp_id=series[self.temp_id_str_column],
-                ),
-            )
-            return
-        obj = self._cls(**ddict)
-        return obj
-
-    def _handle_new_db(self, data: pl.DataFrame) -> bool:
-        if self._db_df is not None:
-            return False
-        self._db_df = data.unique(self.temp_id_str_column).sort(self.temp_id_str_column)
-        self.id_mapper.update(
-            dict(
-                (item, str(uuid.uuid4()))
-                for item in set(self._db_df[self.temp_id_str_column])
-            )
-        )
-        self._db_df = self._db_df.with_columns(
-            pl.col(self.temp_id_str_column).replace_strict(self.id_mapper).alias("uuid")
-        )
-        now = str(datetime.datetime.now())
-        self._db_df = self._db_df.with_columns(
-            pl.lit(now).alias("create_time"),
-            pl.lit(now).alias("update_time"),
-            pl.col(self.temp_id_str_column).alias("all_cols"),
-        )
-        self._db_df = self._db_df[self._cls_obj.fields]
-        return True
-
-    def _handle_new_posts(self, data: pl.DataFrame) -> pl.DataFrame:
-        # Not implemented
-        return data
-
-    def _get_uuid_in_db_from_table_object(self, obj: DataTypeDatabaseTable) -> str | None:
-        """
-        Search for match in database and returns the corresponding uuid.
-        A match is found if all values of self.columns match.
-        Returns None if no match found.
-        """
-        ans = self._db_df.filter(pl.col("all_cols") == obj.all_cols)
-        if ans.is_empty():
-            return
-        return ans["uuid"][0]
-
-    def _add_objs_to_db(self, objs: list[DataTypeDatabaseTable]) -> None:
-        """Adds all given objects to the database"""
-        if not objs:
-            return
-        records = [obj.fields_data for obj in objs]
-        if self._db_df.is_empty():
-            df = pl.DataFrame(records)
-        else:
-            df = pl.concat([self._db_df, pl.DataFrame(records)])
-        if df.height != df.unique(["all_cols"]).height:
-            raise Exception(
-                "Values in all_cols-column is not unique. Something went wrong..."
-            )
-        self._db_df = df
-
-    def _update_db_from_match_obj(self, valid_matches: list[DataTypeMatching]) -> None:
-        """Adds all valid objects to the database"""
-        if not valid_matches:
-            return
-        mapping = dict((col, dict()) for col in valid_matches[0].editable_columns)
-        for match in valid_matches:
-            data = match.get_updated_data()
-            if not data:
-                continue
-            _id = data.pop("uuid")
-            for col, value in data.items():
-                mapping[col][_id] = value
-        self.mapping = mapping
-        # Update dataframe
-        exps = []
-        for col, mapper in mapping.items():
-            exps.append(
-                pl.col("uuid").replace_strict(mapper, default=pl.col(col)).alias(col)
-            )
-        self._db_df = self._db_df.with_columns(exps)
-
-    def _add_temp_id_str_column(self, df: pl.DataFrame) -> pl.DataFrame:
-        return df.with_columns(
-            pl.concat_str(self.columns, separator="<>").alias(self.temp_id_str_column)
+    def _get_valid_matches(self, no_perfect_match_df: pl.DataFrame):
+        raise NotImplementedError(
+            "Method _get_valid_matches must be implemented by child class"
         )
 
-    def _add_ids_to_df(self, df: pl.DataFrame):
-        return df.with_columns(
-            pl.col(self.temp_id_str_column)
-            .replace_strict(self.id_mapper, default="")
-            .alias(self.id_column)
-        )
-
-    def _map_perfect_match(self, df: pl.DataFrame) -> tuple[pl.DataFrame, int]:
-        perfect_match_df = df.join(
-            self._db_df, left_on=self.temp_id_str_column, right_on="all_cols", how="inner"
-        )
-        no_perfect_match_df = df.join(
-            self._db_df, left_on=self.temp_id_str_column, right_on="all_cols", how="anti"
-        )
-        id_perfect_match = dict(
-            zip(perfect_match_df[self.temp_id_str_column], perfect_match_df["uuid"])
-        )
-
-        self.id_mapper.update(id_perfect_match)
-        return (no_perfect_match_df, len(id_perfect_match))
-
-    def _map_suggestions_in_db(
-        self, no_perfect_match_df: pl.DataFrame, add_if_valid: bool = False
-    ) -> dict[str, Any]:
-        if not no_perfect_match_df.height:
-            return {}
-        self.no_perfect_match_df = no_perfect_match_df
-
-        # objs_to_add_to_db: list[DataTypeMatching] = []
-        valid_matches_to_update_in_database: list[DataTypeMatching] = []
-        valid_not_added: list[DataTypeMatching] = []
-        self.cols = []
-
-        for i in range(len(self.columns)):
-            cols = self.columns[:]
-            cols.pop(i)
-            info = self._get_matches(no_perfect_match_df, cols)
-            # objs_to_add_to_db.extend(info["new"])
-            if add_if_valid:
-                valid_matches_to_update_in_database.extend(info["valid"])
-            else:
-                valid_not_added.extend(info["valid"])
-        if self.check_nr_diffs == 2:
-            no_perfect_match_df = no_perfect_match_df.filter(
-                ~pl.col(self.temp_id_str_column).is_in(list(self.id_mapper))
-            )
-            if no_perfect_match_df.height:
-                double_cols = self.columns + self.columns
-                for n in range(len(self.columns)):
-                    cols = double_cols[n + 1 :][: len(self.columns) - 2]
-                    info = self._get_matches(no_perfect_match_df, cols)
-                    # objs_to_add_to_db.extend(info["new"])
-                    if add_if_valid:
-                        valid_matches_to_update_in_database.extend(info["valid"])
-                    else:
-                        valid_not_added.extend(info["valid"])
-
-        return dict(
-            # objs_to_add_to_db=objs_to_add_to_db,
-            # tot_nr_new=len(objs_to_add_to_db),
-            valid_matches_to_update_in_database=valid_matches_to_update_in_database,
-            valid_not_added=valid_not_added,
-        )
-
-    def _get_matches(self, no_perfect_match_df: pl.DataFrame, cols: list[str]):
-        temp_concat_col = "_temp_concat_col"
-        db_df = self._db_df.with_columns(
-            pl.concat_str(cols, separator="<>").alias(temp_concat_col)
-        )
-        df = no_perfect_match_df.with_columns(
-            pl.concat_str(cols, separator="<>").alias(temp_concat_col)
-        )
-        match_df = df.join(db_df, on=temp_concat_col, how="inner")
-
-        col_data = dict(
-            cols=cols,
-            match_df=match_df,
-            obj=[],
-            match_obj=[],
-            mdf_data=[],
-            valid_match=[],
-        )
-        if not match_df.height:
-            self.cols.append(col_data)
-            return dict(
-                valid=[],
-                # new=[],
-            )
-
-        valid = list()
-        # new = list()
-
-        right_cols = [col for col in match_df.columns if col.endswith("_right")]
-        remove_cols_in_match = [col[:-6] for col in right_cols]
-        right_cols_mapper = dict(zip(right_cols, remove_cols_in_match))
-
-        for (temp_id_str,), mdf in match_df.group_by(temp_concat_col):
-            obj = self._get_table_obj(
-                df.filter(pl.col(temp_concat_col) == temp_id_str).to_dicts()[0]
-            )
-
-            mdf = mdf.drop(remove_cols_in_match)
-            mdf = mdf.rename(right_cols_mapper)
-
-            mdf_data = mdf.to_dicts()[0]
-
-            self.mdf_data = mdf_data
-
-            match_obj = self._get_table_obj(mdf_data, include_uuid=True)
-            self.obj = obj
-            self.match_obj = match_obj
-
-            obj.set_all_cols_field()
-            match_obj.set_all_cols_field()
-            valid_match = self.matching_cls(obj, match_obj)
-
-            col_data["obj"].append(obj)
-            col_data["match_obj"].append(match_obj)
-            col_data["mdf_data"].append(mdf_data)
-            col_data["valid_match"].append(valid_match)
-
-            if valid_match.is_valid_match():
-                valid.append(valid_match)
-            # else:
-            #     _id = str(uuid.uuid4())
-            #     obj.uuid = _id
-            #     new.append(obj)
-            #     self.id_mapper[mdf_data[self.temp_id_str_column]] = _id
-        self.cols.append(col_data)
-
-        return dict(
-            valid=valid,
-            # new=new,
-        )
-
-    def _add_no_match_as_new(self, df: pl.DataFrame, skip_match_objects: list):
-        skip = [match_obj.obj.all_cols for match_obj in skip_match_objects]
-        # print(f"{skip=}")
-        new = list()
-        df_no_id = df.filter(pl.col(self.id_column) == "")
-        for (temp_id_str,), mdf in df_no_id.group_by(self.temp_id_str_column):
-            mdf_data = mdf.to_dicts()[0]
-            # print(f"{mdf_data[self.temp_id_str_column]=}")
-            if self.id_mapper.get(mdf_data[self.temp_id_str_column]):
-                continue
-            # print(f"{mdf_data[self.temp_id_str_column]=}")
-            if mdf_data[self.temp_id_str_column] in skip:
-                # print(f"SKIPPING:   {mdf_data[self.temp_id_str_column]}")
-                continue
-            obj = self._get_table_obj(mdf_data)
-            if not obj:
-                continue
-            obj.set_all_cols_field()
-            _id = str(uuid.uuid4())
-            obj.uuid = _id
-            new.append(obj)
-            self.id_mapper[mdf_data[self.temp_id_str_column]] = _id
-        return new
-
-    def _old_map_suggestions_in_db(
-        self, no_perfect_match_df: pl.DataFrame, add_if_valid: bool = False
-    ) -> dict[str, Any]:
-        if not no_perfect_match_df.height:
-            return {}
-        self.no_perfect_match_df = no_perfect_match_df
-        tot_nr_new = 0
-
-        objs_to_add_to_db = []
-        valid_matches_to_update_in_database: list[DataTypeMatching] = []
-        valid_not_added: list[DataTypeMatching] = []
-        self.cols = []
-
-        temp_concat_col = "_temp_concat_col"
-        for i in range(len(self.columns)):
-            cols = self.columns[:]
-            cols.pop(i)
-            db_df = self._db_df.with_columns(
-                pl.concat_str(cols, separator="<>").alias(temp_concat_col)
-            )
-            df = no_perfect_match_df.with_columns(
-                pl.concat_str(cols, separator="<>").alias(temp_concat_col)
-            )
-            match_df = df.join(db_df, on=temp_concat_col, how="inner")
-
-            col_data = dict(
-                cols=cols,
-                match_df=match_df,
-                obj=[],
-                match_obj=[],
-                mdf_data=[],
-                valid_match=[],
-            )
-            if not match_df.height:
-                self.cols.append(col_data)
-                continue
-
-            right_cols = [col for col in match_df.columns if col.endswith("_right")]
-            remove_cols_in_match = [col[:-6] for col in right_cols]
-            right_cols_mapper = dict(zip(right_cols, remove_cols_in_match))
-
-            for (temp_id_str,), mdf in match_df.group_by(temp_concat_col):
-                obj = self._get_table_obj(
-                    df.filter(pl.col(temp_concat_col) == temp_id_str).to_dicts()[0]
-                )
-
-                mdf = mdf.drop(remove_cols_in_match)
-                mdf = mdf.rename(right_cols_mapper)
-
-                mdf_data = mdf.to_dicts()[0]
-
-                self.mdf_data = mdf_data
-
-                match_obj = self._get_table_obj(mdf_data, include_uuid=True)
-                self.obj = obj
-                self.match_obj = match_obj
-
-                obj.set_all_cols_field()
-                match_obj.set_all_cols_field()
-                valid_match = self.matching_cls(obj, match_obj)
-
-                col_data["obj"].append(obj)
-                col_data["match_obj"].append(match_obj)
-                col_data["mdf_data"].append(mdf_data)
-                col_data["valid_match"].append(valid_match)
-
-                if valid_match.is_valid_match():
-                    if add_if_valid:
-                        valid_matches_to_update_in_database.append(valid_match)
-                        self.id_mapper[mdf_data[self.temp_id_str_column]] = (
-                            valid_match.match_uuid
-                        )
-                    else:
-                        valid_not_added.append(valid_match)
-                else:
-                    _id = str(uuid.uuid4())
-                    obj.uuid = _id
-                    objs_to_add_to_db.append(obj)
-                    self.id_mapper[mdf_data[self.temp_id_str_column]] = _id
-                    tot_nr_new += 1
-            self.cols.append(col_data)
-
-        return dict(
-            objs_to_add_to_db=objs_to_add_to_db,
-            tot_nr_new=tot_nr_new,
-            valid_matches_to_update_in_database=valid_matches_to_update_in_database,
-            valid_not_added=valid_not_added,
-        )
-
-    def _all_ids_found(self, df: pl.DataFrame) -> bool:
-        if df.filter(pl.col(self.id_column) == "").height:
-            return False
-        return True
-
-    def add_uuid_to_data_and_database(
-        self, df: pl.DataFrame, add_if_valid: bool = False
+    def add_occurrence_id_to_data_and_database(
+        self,
+        df: pl.DataFrame,
+        add_if_valid: bool = False,
+        force_new_occurrences: list[str] | None = None,
     ) -> pl.DataFrame:
-        """Adds uuid to dataframe for all rows that have match in database.
+        """Adds occurrence_id to dataframe for all rows that have match in database.
         If not match in database a new id is created and added to dataframe and database.
         Option to also add if 'self.is_valid_match' if True
         (set flag add_if_valid=True)"""
+
+        df = self._prepare_data(df)
+
         hashes_before = utils.get_database_hashes(self._nodc_conf)
-        if self.id_column not in df.columns:
-            df = df.with_columns(pl.lit("").alias(self.id_column))
+        reported_id_columns = f"reported_{self.id_column}"
+        if self.id_column in df.columns:
+            df = df.with_columns(pl.col(self.id_column).alias(reported_id_columns))
+        else:
+            df = df.with_columns(
+                pl.lit("").alias(self.id_column), pl.lit("").alias(reported_id_columns)
+            )
 
         # Preparing data
-        df = self._add_temp_id_str_column(df=df)
+        df = self._add_all_cols_column(df=df)
         mask = pl.lit(True)
         for col in self.mandatory_columns:
             mask = mask & (pl.col(col) != "")
-        missing_mandatory = len(df.filter(~mask))
+        missing_df = df.filter(~mask)
+        missing_mandatory = dict()
+        if missing_df.height:
+            for col in self.mandatory_columns:
+                col_df = missing_df.filter(pl.col(col) == "")
+                if not col_df.height:
+                    continue
+                missing_mandatory[col] = len(col_df)
+
+        if missing_mandatory:
+            for col, count in missing_mandatory.items():
+                event.post_event(
+                    event.Events.MISSING_MANDATORY_COLUMNS,
+                    dict(
+                        value=missing_mandatory,
+                        msg=f"Mandatory column '{col}' missing in {count} rows",
+                    ),
+                )
+
         data = df.filter(mask)
+        data = self._filter_data(data)
 
         if self._handle_new_db(data):
             df = self._add_ids_to_df(df)
@@ -450,91 +198,285 @@ class OccurrencesDatabase:
                 ),
             )
             self.save()
-            hashes_after = utils.get_database_hashes()
+            hashes_after = utils.get_database_hashes(self._nodc_conf)
             self._check_hashes(hashes_before, hashes_after)
             return df
 
-        data = self._handle_new_posts(data)  # Not implemented
+        mapper = self._handle_new_posts(data)  # Not implemented
+        self.id_mapper.update(mapper)
+        data = self._add_ids_to_df(data, mapper=mapper)
 
         # Add ids for perfect match
-        (no_perfect_match_df, tot_nr_perfect_matches) = self._map_perfect_match(data)
-        df = self._add_ids_to_df(df)
+        mapper = self._map_perfect_match(data)
+        if mapper:
+            self.id_mapper.update(mapper)
+            data = self._add_ids_to_df(data, mapper=mapper)
 
-        suggestion_info = self._map_suggestions_in_db(
-            no_perfect_match_df, add_if_valid=add_if_valid
+        # No need to continue if all ids are set
+        if self._all_ids_found(df):
+            return df
+
+        # Add suggestions from database and update (if valid)
+        mapper = self._map_suggestions(
+            data, add_if_valid=add_if_valid, force_new_occurrences=force_new_occurrences
         )
 
-        skip = suggestion_info.get("valid_not_added", []) + suggestion_info.get(
-            "valid_matches_to_update_in_database", []
+        if mapper:
+            save_path = self._save_valid_match_file(list(mapper.keys()))
+            event.post_event(
+                event.Events.INFO,
+                dict(
+                    msg=f"Valid matches stored in file: {save_path}", data=sorted(mapper)
+                ),
+            )
+            if add_if_valid:
+                self.id_mapper.update(mapper)
+                data = self._add_ids_to_df(data, mapper=mapper)
+            else:
+                data = data.filter(~pl.col(self.all_cols_column).is_in(mapper.keys()))
+
+        # Add new if no match
+        mapper = self._add_no_match_as_new(
+            data, force_new_occurrences=force_new_occurrences
         )
-        objs = self._add_no_match_as_new(df, skip)
-        suggestion_info["objs_to_add_to_db"] = objs
+        self.id_mapper.update(mapper)
+        data = self._add_ids_to_df(data, mapper=mapper)
 
-        # Add to db and dataframe
-        df = self._add_ids_to_df(df)
-        self._update_db_from_match_obj(
-            suggestion_info.get("valid_matches_to_update_in_database")
-        )
-        self._add_objs_to_db(suggestion_info.get("objs_to_add_to_db"))
+        # Finally map all to original data
+        df = self._add_ids_to_df(df, mapper=self.id_mapper)
 
-        if missing_mandatory:
-            event.post_event(
-                event.Events.MISSING_MANDATORY_COLUMNS,
-                dict(
-                    value=missing_mandatory,
-                    msg=f"Mandatory columns missing in {missing_mandatory} rows",
-                ),
-            )
-
-        if tot_nr_perfect_matches:
-            event.post_event(
-                event.Events.NR_PERFECT_MATCH,
-                dict(
-                    value=tot_nr_perfect_matches,
-                    msg=f"Adding {tot_nr_perfect_matches} "
-                    f"occurrence_id(s) from perfect match in database",
-                ),
-            )
-
-        if suggestion_info.get("valid_matches_to_update_in_database"):
-            event.post_event(
-                event.Events.NR_VALID_ADDED,
-                dict(
-                    value=suggestion_info.get("valid_matches_to_update_in_database"),
-                    msg=f"""Adding {
-                        len(
-                            suggestion_info.get("valid_matches_to_update_in_database", [])
-                        )
-                    }
-                     occurrence_id(s) from VALID match in database. Database is updated!
-                        """,
-                ),
-            )
-
-        if suggestion_info.get("valid_not_added"):
-            event.post_event(
-                event.Events.NR_VALID_NOT_ADDED,
-                dict(
-                    value=suggestion_info.get("valid_not_added"),
-                    msg=f"Found {len(suggestion_info.get('valid_not_added', []))} "
-                    f"VALID occurrence_id match(es)in database but did not add! "
-                    f"Set add_if_valid=True if you want to add and update them",
-                ),
-            )
-
-        if suggestion_info.get("objs_to_add_to_db"):
-            nr_new = len(suggestion_info.get("objs_to_add_to_db", []))
-            event.post_event(
-                event.Events.NR_NEW,
-                dict(
-                    value=nr_new,
-                    msg=f"{nr_new} new occurrence_id(s) added to data and database",
-                ),
-            )
+        # Save and check
         self.save()
         hashes_after = utils.get_database_hashes(self._nodc_conf)
         self._check_hashes(hashes_before, hashes_after)
         return df
+
+    def _add_ids_to_df(self, df: pl.DataFrame, mapper: dict[str, str] | None = None):
+        """Adds matching occurrence_id to the given dataframe"""
+        if mapper is None:
+            mapper = self.id_mapper
+        return df.with_columns(
+            pl.col(self.all_cols_column)
+            .replace_strict(mapper, default=pl.col(self.id_column))
+            .alias(self.id_column)
+        )
+
+    def _update_database_info(self):
+        """Adds updates info in database"""
+        all_ids = set()
+        for col, mapper in self.db_mappers.items():
+            self._db_df = self._db_df.with_columns(
+                pl.col(self.id_column)
+                .replace_strict(mapper, default=pl.col(col))
+                .alias(col)
+            )
+            all_ids.update(set(mapper.keys()))
+
+        # Update time
+        now = str(datetime.datetime.now())
+        mapper = dict((_id, now) for _id in all_ids)
+        self._db_df = self._db_df.with_columns(
+            pl.col(self.id_column)
+            .replace_strict(mapper, default=pl.col("update_time"))
+            .alias("update_time")
+        )
+
+        # Update all_cols column
+        self._db_df = self._add_all_cols_column(self._db_df)
+
+    def _map_perfect_match(self, df: pl.DataFrame) -> dict[str, str]:
+        perfect_match_df = df.join(
+            self._db_df,
+            on=self.all_cols_column,
+            how="inner",
+            suffix=self._db_match_suffix,
+        )
+
+        id_column = self._get_db_match_column(self.id_column)
+        if id_column not in perfect_match_df.columns:
+            id_column = self.id_column
+
+        mapper = dict(
+            zip(perfect_match_df[self.all_cols_column], perfect_match_df[id_column])
+        )
+        if len(perfect_match_df):
+            event.post_event(
+                event.Events.NR_PERFECT_MATCH,
+                dict(
+                    value=len(perfect_match_df),
+                    msg=f"{len(perfect_match_df)} occurrence_id(s) with perfect match "
+                    f"in database",
+                ),
+            )
+        # No need to update anything in database
+        return mapper
+
+    def _map_suggestions(
+        self,
+        df: pl.DataFrame,
+        add_if_valid: bool = False,
+        force_new_occurrences: list[str] | None = None,
+    ) -> dict[str, str]:
+
+        force_new_occurrences = force_new_occurrences or []
+        # Filter data that does not have occurrence_id
+        no_perfect_match_df = df.filter(pl.col(self.id_column) == "")
+        if not no_perfect_match_df.height:
+            return {}
+
+        # Check in child classes if there are any valid non-perfect matches
+        valid_matches: list[DatabaseMatching] = self._get_valid_matches(
+            no_perfect_match_df
+        )
+        # TODO: Check if duplicates in matching mappers
+        # TODO: Check given list for new IDS
+
+        if not valid_matches:
+            return {}
+
+        # Update and log
+        id_mapper = dict()
+        for match in valid_matches:
+            mapper = match.id_mapper.copy()
+            for all_cols in force_new_occurrences:
+                mapper.pop(all_cols, None)
+
+            if not len(mapper):
+                continue
+
+            # Add to id_mapper
+            id_mapper.update(match.id_mapper)
+
+            # Add to data
+            filter_df = df.filter(
+                pl.col(self.all_cols_column).is_in(match.id_mapper.keys())
+            )
+            enriched_df = filter_df.with_columns(
+                pl.col(self.all_cols_column)
+                .replace_strict(mapper, default="")
+                .alias(self.id_column)
+            )
+
+            match_df = enriched_df.join(
+                self.db, on=self.id_column, how="inner", suffix=self._db_match_suffix
+            )
+            for col in self.columns:
+                self.db_mappers.setdefault(col, dict())
+                self.db_mappers[col].update(
+                    dict(zip(match_df[self.id_column], match_df[col]))
+                )
+
+            # Log
+            if not add_if_valid:
+                event.post_event(
+                    event.Events.NR_VALID_NOT_ADDED,
+                    dict(value=len(mapper), msg=match.msg + f" ({len(mapper)} places)"),
+                )
+            else:
+                event.post_event(
+                    event.Events.NR_VALID_ADDED,
+                    dict(
+                        value=match.count,
+                        msg=match.msg,
+                    ),
+                )
+
+        if add_if_valid:
+            self._update_database_info()
+
+        return id_mapper
+
+    def _add_no_match_as_new(
+        self, df: pl.DataFrame, force_new_occurrences: list[str] | None = None
+    ) -> dict[str, str]:
+        df_no_id = df.unique(self.all_cols_column).filter(pl.col(self.id_column) == "")
+        df_no_match = df_no_id.filter(
+            ~pl.col(self.all_cols_column).is_in(self.id_mapper.keys())
+        )
+
+        # Add new ids
+        df_with_id = df_no_match.with_columns(
+            pl.Series(
+                self.id_column, [str(uuid.uuid4()) for _ in range(len(df_no_match))]
+            )
+        )
+
+        # Add time stamps and filter columns
+        now = str(datetime.datetime.now())
+        df_with_id = df_with_id.with_columns(
+            pl.lit(now).alias("create_time"),
+            pl.lit(now).alias("update_time"),
+        )
+        df_with_id = df_with_id[self.all_columns]
+
+        # Create mapper for adding ids to original dataframe
+        mapper = dict(zip(df_no_match[self.all_cols_column], df_no_match[self.id_column]))
+
+        # Add ids to database
+        self._db_df = pl.concat([self._db_df, df_with_id], how="diagonal")
+
+        if nr_new := len(df_with_id):
+            if force_new_occurrences:
+                nr_forced = len(
+                    [item for item in force_new_occurrences if item in mapper]
+                )
+                if nr_forced:
+                    event.post_event(
+                        event.Events.NR_NEW,
+                        dict(
+                            value=nr_new,
+                            msg=f"{nr_new} new occurrence_id(s) forced by user added to "
+                            f"data and database",
+                        ),
+                    )
+                if nr_new := (nr_new - nr_forced):
+                    event.post_event(
+                        event.Events.NR_NEW,
+                        dict(
+                            value=nr_new,
+                            msg=f"{nr_new} new occurrence_id(s) with no match added to "
+                            f"data and database",
+                        ),
+                    )
+
+        return mapper
+
+    def _handle_new_db(self, data: pl.DataFrame) -> bool:
+        if self._db_df is not None:
+            return False
+        self._db_df = data.unique(self.all_cols_column).sort(self.all_cols_column)
+        self.id_mapper.update(
+            dict(
+                (item, str(uuid.uuid4()))
+                for item in set(self._db_df[self.all_cols_column])
+            )
+        )
+        self._db_df = self._db_df.with_columns(
+            pl.col(self.all_cols_column)
+            .replace_strict(self.id_mapper)
+            .alias(self.id_column)
+        )
+        now = str(datetime.datetime.now())
+        self._db_df = self._db_df.with_columns(
+            pl.lit(now).alias("create_time"),
+            pl.lit(now).alias("update_time"),
+        )
+        self._db_df = self._db_df[self.columns]
+        return True
+
+    def _handle_new_posts(self, data: pl.DataFrame) -> dict[str, str]:
+        # Not implemented
+        return {}
+
+    def _add_all_cols_column(self, df: pl.DataFrame) -> pl.DataFrame:
+        return df.with_columns(
+            pl.concat_str(self.match_columns, separator="<>").alias(self.all_cols_column)
+        )
+
+    def _all_ids_found(self, df: pl.DataFrame) -> bool:
+        if df.filter(pl.col(self.id_column) == "").height:
+            return False
+        return True
 
     def _check_hashes(self, before: dict, after: dict):
         files = dict(
@@ -552,25 +494,9 @@ class OccurrencesDatabase:
         if updated:
             event.post_event(event.Events.DATABASE_IS_UPDATED, files)
 
-    def _post_event_progress(self, current: int, total: int) -> None:
-        event.post_event(
-            event.Events.PROGRESS,
-            dict(
-                total=total,
-                current=current,
-                title="Checking occurrence id",
-            ),
-        )
-
-    def filter_dict(
-        self, data: dict, include_uuid: bool = False, include_all_cols: bool = False
-    ) -> dict:
-        new_data = {}
-        columns = self.columns[:]
-        if include_uuid:
-            columns.append("uuid")
-        if include_all_cols:
-            columns.append("all_cols")
-        for col in columns:
-            new_data[col] = data.get(col, "")
-        return new_data
+    def _save_valid_match_file(self, all_cols_list: list[str]) -> pathlib.Path:
+        path = pathlib.Path.home() / "occurrence_id" / "valid_matches.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as fid:
+            fid.write("\n".join(sorted(all_cols_list)))
+        return path
