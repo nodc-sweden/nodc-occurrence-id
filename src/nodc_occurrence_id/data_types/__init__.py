@@ -8,7 +8,9 @@ from nodc_occurrence_id import utils
 from ..occurrence import OccurrencesDatabase
 from .harbour_seal import HarbourSealOccurrencesDatabase
 from .plankton_imaging import PlanktonImagingOccurrencesDatabase
-from .zoobenthos import ZoobenthosOccurrencesDatabase
+
+# from .zoobenthos import ZoobenthosOccurrencesDatabase
+# from .grey_seal import GreySealOccurrencesDatabase
 
 
 def get_database_path(nodc_conf: Config, data_type: str) -> pathlib.Path | None:
